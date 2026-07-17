@@ -1,5 +1,5 @@
 import { useCallback, useState } from 'react'
-import { gateAuth, type GateRole } from '../data/auth'
+import { gateAuth, usernameForRole, type GateRole } from '../data/auth'
 import {
   clearGateSession,
   readGateSession,
@@ -9,6 +9,7 @@ import {
 } from '../lib/gateSession'
 
 export type { GateActor } from '../lib/gateSession'
+export { usernameForRole } from '../data/auth'
 
 export type GateStep = 'username' | 'password'
 
@@ -59,10 +60,6 @@ export function resolveGateRole(input: string): GateRole | null {
   if (name === normalizeUsername(gateAuth.her.username)) return 'her'
   if (name === normalizeUsername(gateAuth.him.username)) return 'him'
   return null
-}
-
-export function usernameForRole(role: GateRole): string {
-  return role === 'her' ? gateAuth.her.username : gateAuth.him.username
 }
 
 export function checkPasswordForRole(role: GateRole, input: string): boolean {

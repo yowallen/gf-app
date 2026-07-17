@@ -14,11 +14,23 @@ import {
   sortMeetDays,
   type MeetDay,
 } from '../data/timeline'
+import { canonicalizeUsername } from '../data/auth'
 import { compressMeetImage } from '../lib/compressMeetImage'
 import { getFirebase, isFirebaseConfigured, meetLogId } from '../lib/firebase'
 import type { SyncState } from './useBucketList'
 
 const STORAGE_KEY = `antangoy-meets-${meetLogId}`
+
+function withCanonicalNames(items: MeetDay[]): MeetDay[] {
+  let changed = false
+  const next = items.map((item) => {
+    const addedBy = canonicalizeUsername(item.addedBy)
+    if (addedBy === item.addedBy) return item
+    changed = true
+    return { ...item, addedBy }
+  })
+  return changed ? next : items
+}
 
 function loadLocal(): MeetDay[] {
   try {
@@ -26,7 +38,11 @@ function loadLocal(): MeetDay[] {
     if (!raw) return []
     const parsed: unknown = JSON.parse(raw)
     if (!Array.isArray(parsed)) return []
-    return sortMeetDays(parsed as MeetDay[])
+    const rawItems = parsed as MeetDay[]
+    const canonical = withCanonicalNames(rawItems)
+    const items = sortMeetDays(canonical)
+    if (canonical !== rawItems) saveLocal(items)
+    return items
   } catch {
     return []
   }
@@ -126,9 +142,21 @@ export function useMeetLog(addedBy = 'us') {
             const data = d.data() as Omit<MeetDay, 'id'>
             return { id: d.id, ...data }
           })
-          const sorted = sortMeetDays(remote)
+          const sorted = sortMeetDays(withCanonicalNames(remote))
           setItems(sorted)
           saveLocal(sorted)
+          for (const item of sorted) {
+            const original = remote.find((r) => r.id === item.id)
+            if (original && original.addedBy !== item.addedBy) {
+              void setDoc(
+                doc(entriesCollection(fb.db), item.id),
+                { addedBy: item.addedBy },
+                { merge: true },
+              ).catch((err: unknown) => {
+                console.error('Meet log name migrate failed', err)
+              })
+            }
+          }
           setSyncError(null)
           setSyncState('synced')
         },

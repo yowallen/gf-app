@@ -28,3 +28,28 @@ export const gateAuth = {
 } as const
 
 export type GateRole = 'her' | 'him'
+
+export function usernameForRole(role: GateRole): string {
+  return role === 'her' ? gateAuth.her.username : gateAuth.him.username
+}
+
+/** Former him usernames — remap so old “by …” labels stay current. */
+const LEGACY_HIM_USERNAMES = ['mydeadromance'] as const
+
+export function canonicalizeUsername(name: string): string {
+  const normalized = name.trim().toLowerCase()
+  if (
+    LEGACY_HIM_USERNAMES.includes(
+      normalized as (typeof LEGACY_HIM_USERNAMES)[number],
+    )
+  ) {
+    return gateAuth.him.username
+  }
+  if (normalized === gateAuth.her.username.toLowerCase()) {
+    return gateAuth.her.username
+  }
+  if (normalized === gateAuth.him.username.toLowerCase()) {
+    return gateAuth.him.username
+  }
+  return name
+}

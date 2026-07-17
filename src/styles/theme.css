@@ -918,37 +918,75 @@ a {
   z-index: 2;
   display: flex;
   justify-content: center;
-  margin-bottom: -6px;
+  margin-bottom: -10px;
 }
 
 .stem-flower {
   display: block;
   overflow: visible;
-  filter: drop-shadow(0 3px 8px rgba(var(--primary-deep-rgb), 0.14));
+  filter: drop-shadow(0 6px 16px rgba(var(--primary-deep-rgb), 0.16));
+}
+
+.stem-flower--bloom {
+  width: min(88vw, 300px);
+  height: auto;
+}
+
+.stem-flower--seed {
+  width: 64px;
+  height: auto;
 }
 
 .stem-flower__neck {
   stroke: var(--primary);
-  stroke-width: 2.75;
+  stroke-width: 4;
   stroke-linecap: round;
 }
 
 .stem-flower__seed {
   fill: var(--accent);
   animation: stemSeedPulse 2s var(--ease) infinite;
-  transform-origin: 20px 18px;
+  transform-origin: 28px 26px;
 }
 
 .stem-flower__petal {
   fill: var(--accent-soft);
-  stroke: rgba(var(--accent-rgb), 0.45);
-  stroke-width: 0.6;
+  stroke: rgba(var(--accent-rgb), 0.35);
+  stroke-width: 0.7;
+  fill-opacity: calc(1 - var(--petal-ring, 0) * 0.05);
+  animation: stemPetalBloom 0.45s var(--ease) both;
+  animation-delay: calc(var(--petal-i, 0) * 0.03s);
+}
+
+@keyframes stemPetalBloom {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+.stem-flower__disk {
+  fill: color-mix(in srgb, var(--primary-deep) 62%, var(--accent) 38%);
+  stroke: rgba(var(--primary-deep-rgb), 0.4);
+  stroke-width: 1.2;
+}
+
+.stem-flower__floret {
+  fill: color-mix(in srgb, var(--accent-soft) 65%, #fff 35%);
+  opacity: 0.95;
+}
+
+.stem-flower__floret--inner {
+  fill: color-mix(in srgb, var(--accent) 50%, #fff 50%);
+  opacity: 0.85;
 }
 
 .stem-flower__center {
-  fill: var(--accent);
-  stroke: rgba(var(--accent-rgb), 0.35);
-  stroke-width: 1;
+  fill: var(--primary-deep);
+  stroke: rgba(var(--primary-deep-rgb), 0.55);
+  stroke-width: 0.8;
 }
 
 .stem-flower__center-dot {

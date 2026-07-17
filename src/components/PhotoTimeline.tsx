@@ -22,7 +22,7 @@ function MeetPhoto({ meet }: { meet: MeetDay }) {
 function statusLabel(state: SyncState): string {
   switch (state) {
     case 'synced':
-      return 'Live sync on — both of you see the same meet log.'
+      return ''
     case 'connecting':
       return 'Connecting to shared meet log…'
     case 'error':

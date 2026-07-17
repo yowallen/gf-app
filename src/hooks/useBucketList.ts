@@ -6,6 +6,7 @@ import {
   type Unsubscribe,
 } from 'firebase/firestore'
 import { onAuthStateChanged, signInAnonymously } from 'firebase/auth'
+import { canonicalizeUsername } from '../data/auth'
 import { bucketListId, getFirebase, isFirebaseConfigured } from '../lib/firebase'
 
 export type BucketCategory = 'date' | 'trip' | 'experience'
@@ -23,13 +24,27 @@ export type SyncState = 'local' | 'connecting' | 'synced' | 'error'
 
 const STORAGE_KEY = `antangoy-bucket-${bucketListId}`
 
+function withCanonicalNames(items: BucketItem[]): BucketItem[] {
+  let changed = false
+  const next = items.map((item) => {
+    const addedBy = canonicalizeUsername(item.addedBy)
+    if (addedBy === item.addedBy) return item
+    changed = true
+    return { ...item, addedBy }
+  })
+  return changed ? next : items
+}
+
 function loadLocal(): BucketItem[] {
   try {
     const raw = localStorage.getItem(STORAGE_KEY)
     if (!raw) return []
     const parsed: unknown = JSON.parse(raw)
     if (!Array.isArray(parsed)) return []
-    return parsed as BucketItem[]
+    const rawItems = parsed as BucketItem[]
+    const items = withCanonicalNames(rawItems)
+    if (items !== rawItems) saveLocal(items)
+    return items
   } catch {
     return []
   }
@@ -97,11 +112,8 @@ export function useBucketList(addedBy = 'us') {
 
   useEffect(() => {
     const fb = getFirebase()
-    if (!fb) {
-      setSyncState('local')
-      setSyncError(null)
-      return
-    }
+    // Already 'local' from initial state when Firebase is not configured
+    if (!fb) return
 
     let unsubSnap: Unsubscribe | undefined
     let cancelled = false
@@ -128,9 +140,18 @@ export function useBucketList(addedBy = 'us') {
         (snap) => {
           if (snap.exists()) {
             const data = snap.data() as { items?: BucketItem[] }
-            const remote = data.items ?? []
+            const remote = withCanonicalNames(data.items ?? [])
             setItems(remote)
             saveLocal(remote)
+            if (remote !== (data.items ?? [])) {
+              void setDoc(
+                doc(fb.db, 'bucketLists', bucketListId),
+                { items: remote },
+                { merge: true },
+              ).catch((err: unknown) => {
+                console.error('Bucket list name migrate failed', err)
+              })
+            }
           } else {
             const local = loadLocal()
             void setDoc(doc(fb.db, 'bucketLists', bucketListId), {

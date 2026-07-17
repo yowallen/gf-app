@@ -23,64 +23,160 @@ const STEM_LEAF_SPOTS = [
   { y: 95, side: 'right' as const, tilt: 20, size: 0.7 },
 ]
 
+/**
+ * Daisy bloom: concentric rings of tongue petals.
+ * Each ring is evenly spaced (always symmetric). Inner rings sit in the
+ * gaps of the ring behind and get shorter — like a gerbera/daisy stack.
+ */
+const MAX_PETALS = 72
+/** How many meets fill each ring before the next layer starts */
+const RING_CAPACITIES = [14, 16, 18, 20, 22] as const
+
+type PetalSlot = {
+  index: number
+  ring: number
+  angle: number
+  len: number
+  width: number
+}
+
+function buildDaisyPetals(count: number): PetalSlot[] {
+  const petals: PetalSlot[] = []
+  let remaining = Math.min(Math.max(count, 0), MAX_PETALS)
+  let index = 0
+  let prevCount = RING_CAPACITIES[0]
+
+  for (let ring = 0; remaining > 0 && ring < RING_CAPACITIES.length; ring += 1) {
+    const capacity = RING_CAPACITIES[ring]
+    const inRing = Math.min(remaining, capacity)
+    // Even fan — never leave empty reserved slots (that looked wonky)
+    const step = 360 / inRing
+    const offset =
+      ring === 0 ? -90 : -90 + 180 / Math.max(prevCount, 1)
+    // Outer ring longest; each inward ring shorter + a bit narrower
+    const len = 78 - ring * 11
+    const width = 14 - ring * 1.6
+
+    for (let i = 0; i < inRing; i += 1) {
+      petals.push({
+        index,
+        ring,
+        angle: offset + i * step,
+        len: Math.max(len, 28),
+        width: Math.max(width, 5),
+      })
+      index += 1
+    }
+
+    prevCount = inRing
+    remaining -= inRing
+  }
+
+  return petals
+}
+
+/** Soft daisy petal — rounded tip, tucked under the disk. */
+function petalPath(cx: number, cy: number, len: number, width: number): string {
+  const tip = cy - len
+  const waist = cy - len * 0.55
+  const base = cy - 2
+  const w = width
+  return [
+    `M ${cx} ${base}`,
+    `C ${cx - w * 0.55} ${base - len * 0.08}, ${cx - w} ${waist}, ${cx - w * 0.35} ${tip + len * 0.12}`,
+    `Q ${cx} ${tip - 1}, ${cx + w * 0.35} ${tip + len * 0.12}`,
+    `C ${cx + w} ${waist}, ${cx + w * 0.55} ${base - len * 0.08}, ${cx} ${base}`,
+    'Z',
+  ].join(' ')
+}
+
 function TopFlower({ petalCount }: { petalCount: number }) {
   const n = Math.max(petalCount, 0)
-  const drawn = Math.min(Math.max(n, n === 0 ? 0 : 1), 12)
-  const size = 88
+  const petals = buildDaisyPetals(n)
+  const ringCount = petals.length === 0 ? 0 : petals[petals.length - 1].ring + 1
+  // Large viewBox — CSS scales the SVG up further
+  const size = 220
   const cx = size / 2
   const cy = size / 2
-  const petalLen = drawn <= 5 ? 28 : drawn <= 8 ? 24 : 20
-  const petalW = drawn <= 5 ? 12 : drawn <= 8 ? 10 : 8
+  const diskR = 18 + Math.min(ringCount, 5) * 3.5
 
   if (n === 0) {
     return (
       <svg
         className="stem-flower stem-flower--seed"
-        viewBox="0 0 40 52"
-        width="40"
-        height="52"
+        viewBox="0 0 56 72"
+        width="56"
+        height="72"
         aria-hidden="true"
       >
-        <line className="stem-flower__neck" x1="20" y1="20" x2="20" y2="52" />
-        <circle className="stem-flower__seed" cx="20" cy="18" r="7" />
+        <line className="stem-flower__neck" x1="28" y1="28" x2="28" y2="72" />
+        <circle className="stem-flower__seed" cx="28" cy="26" r="11" />
       </svg>
     )
   }
 
-  const svgH = size + 22
+  const neck = 36
+  const svgH = size + neck
+  const floretCount = Math.min(14 + ringCount * 4, 28)
 
   return (
     <svg
-      className="stem-flower"
+      className="stem-flower stem-flower--bloom"
       viewBox={`0 0 ${size} ${svgH}`}
-      width={size}
-      height={svgH}
       aria-hidden="true"
     >
-      {/* Neck joins the vine below */}
       <line
         className="stem-flower__neck"
         x1={cx}
-        y1={cy}
+        y1={cy + diskR * 0.4}
         x2={cx}
         y2={svgH}
       />
-      {Array.from({ length: drawn }, (_, i) => {
-        const angle = (i * 360) / drawn
+
+      {/* Paint outer ring first so inner layers stack on top */}
+      {petals.map((petal) => (
+        <path
+          key={petal.index}
+          className="stem-flower__petal"
+          d={petalPath(cx, cy, petal.len, petal.width)}
+          transform={`rotate(${petal.angle} ${cx} ${cy})`}
+          style={
+            {
+              '--petal-i': petal.index,
+              '--petal-ring': petal.ring,
+            } as CSSProperties
+          }
+        />
+      ))}
+
+      <circle className="stem-flower__disk" cx={cx} cy={cy} r={diskR} />
+      {Array.from({ length: floretCount }, (_, i) => {
+        const a = ((i * 360) / floretCount) * (Math.PI / 180)
+        const r = diskR * 0.68
         return (
-          <ellipse
-            key={i}
-            className="stem-flower__petal"
-            cx={cx}
-            cy={cy - petalLen * 0.55}
-            rx={petalW}
-            ry={petalLen}
-            transform={`rotate(${angle} ${cx} ${cy})`}
+          <circle
+            key={`floret-${i}`}
+            className="stem-flower__floret"
+            cx={cx + Math.cos(a) * r}
+            cy={cy + Math.sin(a) * r}
+            r={1.8}
           />
         )
       })}
-      <circle className="stem-flower__center" cx={cx} cy={cy} r="8" />
-      <circle className="stem-flower__center-dot" cx={cx} cy={cy} r="3.5" />
+      {Array.from({ length: Math.max(8, floretCount - 6) }, (_, i) => {
+        const a = ((i * 360) / Math.max(8, floretCount - 6) + 12) * (Math.PI / 180)
+        const r = diskR * 0.42
+        return (
+          <circle
+            key={`floret-inner-${i}`}
+            className="stem-flower__floret stem-flower__floret--inner"
+            cx={cx + Math.cos(a) * r}
+            cy={cy + Math.sin(a) * r}
+            r={1.35}
+          />
+        )
+      })}
+      <circle className="stem-flower__center" cx={cx} cy={cy} r={diskR * 0.28} />
     </svg>
   )
 }

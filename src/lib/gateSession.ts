@@ -1,4 +1,4 @@
-import { gateAuth, type GateRole } from '../data/auth'
+import { gateAuth, usernameForRole, type GateRole } from '../data/auth'
 
 const SESSION_KEY = 'antangoy-gate-session'
 const LEGACY_UNLOCK_KEY = 'antangoy-gate'
@@ -108,7 +108,16 @@ export function readGateSession(): GateSession | null {
     const raw = primary.getItem(SESSION_KEY)
     if (raw) {
       const session = parseSession(raw)
-      if (session && !isExpired(session)) return session
+      if (session && !isExpired(session)) {
+        const canonical: GateSession = {
+          ...session,
+          username: usernameForRole(session.role),
+        }
+        if (canonical.username !== session.username) {
+          writeGateSession(canonical)
+        }
+        return canonical
+      }
       primary.removeItem(SESSION_KEY)
     }
   } catch {
@@ -121,8 +130,12 @@ export function readGateSession(): GateSession | null {
     return null
   }
 
-  writeGateSession(legacy)
-  return legacy
+  const canonical: GateSession = {
+    ...legacy,
+    username: usernameForRole(legacy.role),
+  }
+  writeGateSession(canonical)
+  return canonical
 }
 
 export function writeGateSession(session: GateSession): void {
@@ -147,5 +160,5 @@ export function clearGateSession(): void {
 }
 
 export function toGateActor(session: GateSession): GateActor {
-  return { role: session.role, username: session.username }
+  return { role: session.role, username: usernameForRole(session.role) }
 }
