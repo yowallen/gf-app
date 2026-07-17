@@ -1,10 +1,14 @@
 {
+  "homepage": "https://yowallen.github.io/gf-app",
   "name": "girlfriend-app",
   "private": true,
   "version": "0.0.0",
   "type": "module",
   "scripts": {
     "dev": "vite",
+    "predeploy": "npm run build",
+    "deploy": "gh-pages -d dist",
+    "publish": "npm run build && npm run deploy",
     "build": "tsc -b && vite build",
     "lint": "eslint .",
     "preview": "vite preview"

@@ -4,6 +4,7 @@ import { DateIdeas } from './components/DateIdeas'
 import { Hero } from './components/Hero'
 import { IntroLoading } from './components/IntroLoading'
 import { LoginGate } from './components/LoginGate'
+import { LoveLetter } from './components/LoveLetter'
 import { MemeCorner } from './components/MemeCorner'
 import { Milestones } from './components/Milestones'
 import { Nav } from './components/Nav'
@@ -42,6 +43,7 @@ function App() {
             <BucketList addedBy={actor.username} />
             <Milestones />
           </main>
+          <LoveLetter actor={actor} />
         </>
       )}
     </>
