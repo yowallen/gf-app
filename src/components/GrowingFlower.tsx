@@ -44,7 +44,7 @@ function buildDaisyPetals(count: number): PetalSlot[] {
   const petals: PetalSlot[] = []
   let remaining = Math.min(Math.max(count, 0), MAX_PETALS)
   let index = 0
-  let prevCount = RING_CAPACITIES[0]
+  let prevCount: number = RING_CAPACITIES[0]
 
   for (let ring = 0; remaining > 0 && ring < RING_CAPACITIES.length; ring += 1) {
     const capacity = RING_CAPACITIES[ring]
