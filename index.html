@@ -1,0 +1,27 @@
+<!doctype html>
+<html lang="en" data-theme="green">
+  <head>
+    <meta charset="UTF-8" />
+    <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="theme-color" content="#3d7a4a" />
+    <meta name="description" content="A little garden on the internet for Antangoy." />
+    <title>For Antangoy</title>
+    <script>
+      try {
+        var t = localStorage.getItem('antangoy-theme')
+        if (t === 'green' || t === 'purple') {
+          document.documentElement.dataset.theme = t
+          document.querySelector('meta[name="theme-color"]')?.setAttribute(
+            'content',
+            t === 'purple' ? '#6b4f8a' : '#3d7a4a',
+          )
+        }
+      } catch (e) {}
+    </script>
+  </head>
+  <body>
+    <div id="root"></div>
+    <script type="module" src="/src/main.tsx"></script>
+  </body>
+</html>
