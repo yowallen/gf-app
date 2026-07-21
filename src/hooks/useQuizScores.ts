@@ -1,6 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import {
-  arrayUnion,
   doc,
   onSnapshot,
   setDoc,
@@ -190,20 +189,51 @@ function preferPlayer(
   return remote ?? local
 }
 
+function historyWeekKey(entry: CoupleHistoryEntry): string {
+  return entry.weekId && entry.weekId.length > 0 ? entry.weekId : entry.id
+}
+
+function preferSnap(
+  a: PlayerScoreSnap | null,
+  b: PlayerScoreSnap | null,
+): PlayerScoreSnap | null {
+  if (a && !b) return a
+  if (b && !a) return b
+  if (a && b) return b
+  return null
+}
+
+/** One history row per week — merge him/her snaps into a single entry. */
+function upsertHistoryEntry(
+  history: CoupleHistoryEntry[],
+  entry: CoupleHistoryEntry,
+): CoupleHistoryEntry[] {
+  const key = historyWeekKey(entry)
+  const existing = history.find((h) => historyWeekKey(h) === key)
+  const merged: CoupleHistoryEntry = existing
+    ? {
+        id: existing.id,
+        weekId: key === entry.id ? entry.weekId : key,
+        playedAt: Math.max(existing.playedAt, entry.playedAt),
+        him: preferSnap(existing.him, entry.him),
+        her: preferSnap(existing.her, entry.her),
+      }
+    : entry
+
+  return [merged, ...history.filter((h) => historyWeekKey(h) !== key)]
+    .sort((a, b) => b.playedAt - a.playedAt)
+    .slice(0, MAX_HISTORY)
+}
+
 function mergeHistory(
   local: CoupleHistoryEntry[],
   remote: CoupleHistoryEntry[],
 ): CoupleHistoryEntry[] {
-  const byId = new Map<string, CoupleHistoryEntry>()
+  let merged: CoupleHistoryEntry[] = []
   for (const entry of [...local, ...remote]) {
-    const existing = byId.get(entry.id)
-    if (!existing || entry.playedAt >= existing.playedAt) {
-      byId.set(entry.id, entry)
-    }
+    merged = upsertHistoryEntry(merged, entry)
   }
-  return [...byId.values()]
-    .sort((a, b) => b.playedAt - a.playedAt)
-    .slice(0, MAX_HISTORY)
+  return merged
 }
 
 /** Keep finished weekly scores when remote is empty/stale. */
@@ -233,7 +263,11 @@ function loadLocal(): QuizScoreBoard {
     if (!raw) return emptyBoard()
     const parsed = parseBoard(JSON.parse(raw))
     if (!parsed) return emptyBoard()
-    return alignBoard(parsed).board
+    const aligned = alignBoard(parsed).board
+    return {
+      ...aligned,
+      history: mergeHistory([], aligned.history ?? []),
+    }
   } catch {
     return emptyBoard()
   }
@@ -344,7 +378,7 @@ export function useQuizScores(role: GateRole, username: string) {
   const boardRef = useRef(board)
   const pendingScoreRef = useRef<{
     nextRecord: PlayerQuizRecord
-    entry: CoupleHistoryEntry
+    history: CoupleHistoryEntry[]
     weekId: string
   } | null>(null)
 
@@ -387,13 +421,13 @@ export function useQuizScores(role: GateRole, username: string) {
   const persistScoreUpdate = useCallback(
     async (
       nextRecord: PlayerQuizRecord,
-      entry: CoupleHistoryEntry,
+      history: CoupleHistoryEntry[],
       weekId: string,
     ) => {
       const fb = getFirebase()
       if (!fb) return
       if (!authReadyRef.current) {
-        pendingScoreRef.current = { nextRecord, entry, weekId }
+        pendingScoreRef.current = { nextRecord, history, weekId }
         return
       }
 
@@ -404,7 +438,7 @@ export function useQuizScores(role: GateRole, username: string) {
             weekId,
             version: SCOREBOARD_RESET_VERSION,
             [nextRecord.role]: nextRecord,
-            history: arrayUnion(entry),
+            history,
             updatedAt: Date.now(),
           },
           { merge: true },
@@ -414,7 +448,7 @@ export function useQuizScores(role: GateRole, username: string) {
         setSyncState('synced')
       } catch (err) {
         console.error('Quiz scoreboard sync write failed', err)
-        pendingScoreRef.current = { nextRecord, entry, weekId }
+        pendingScoreRef.current = { nextRecord, history, weekId }
         setSyncError(formatSyncError(err))
         setSyncState('error')
       }
@@ -458,22 +492,22 @@ export function useQuizScores(role: GateRole, username: string) {
       }
 
       const historyEntry: CoupleHistoryEntry = {
-        id: newId(),
+        id: `week-${weekId}`,
         weekId,
         playedAt,
         him: snapFromRecord(nextBoard.him),
         her: snapFromRecord(nextBoard.her),
       }
 
-      nextBoard.history = [historyEntry, ...(nextBoard.history ?? [])].slice(
-        0,
-        MAX_HISTORY,
+      nextBoard.history = upsertHistoryEntry(
+        nextBoard.history ?? [],
+        historyEntry,
       )
 
       boardRef.current = nextBoard
       saveLocal(nextBoard)
       setBoard(nextBoard)
-      await persistScoreUpdate(nextRecord, historyEntry, weekId)
+      await persistScoreUpdate(nextRecord, nextBoard.history, weekId)
     },
     [ensureCurrentWeek, persistScoreUpdate, role, username],
   )
@@ -511,7 +545,7 @@ export function useQuizScores(role: GateRole, username: string) {
       if (pending) {
         void persistScoreUpdate(
           pending.nextRecord,
-          pending.entry,
+          pending.history,
           pending.weekId,
         )
       }
@@ -552,10 +586,11 @@ export function useQuizScores(role: GateRole, username: string) {
           boardRef.current = merged
           saveLocal(merged)
 
-          // Push local-only finished scores up if remote was missing them
+          // Push local-only finished scores / collapsed duplicate weeks
           const needsPush =
             (merged.him?.finished && !aligned.board.him?.finished) ||
-            (merged.her?.finished && !aligned.board.her?.finished)
+            (merged.her?.finished && !aligned.board.her?.finished) ||
+            (merged.history?.length ?? 0) < (aligned.board.history?.length ?? 0)
           if (needsPush) {
             void setDoc(
               doc(fb.db, 'quizScoreboards', quizBankId),

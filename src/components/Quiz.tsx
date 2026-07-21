@@ -87,13 +87,11 @@ function displayName(role: 'him' | 'her'): string {
 }
 
 function formatHistoryDate(playedAt: number): string {
-  return new Date(playedAt).toLocaleString(undefined, {
+  return new Date(playedAt).toLocaleDateString(undefined, {
     weekday: 'short',
     month: 'short',
     day: 'numeric',
     year: 'numeric',
-    hour: 'numeric',
-    minute: '2-digit',
   })
 }
 
@@ -495,10 +493,9 @@ export function Quiz({ actor }: QuizProps) {
               {history.map((entry) => (
                 <li key={entry.id} className="quiz-history__item">
                   <p className="quiz-history__when">
-                    {formatHistoryDate(entry.playedAt)}
                     {entry.weekId && entry.weekId !== 'legacy'
-                      ? ` · Week of ${formatWeekLabel(entry.weekId)}`
-                      : ''}
+                      ? `Week of ${formatWeekLabel(entry.weekId)}`
+                      : formatHistoryDate(entry.playedAt)}
                   </p>
                   <div className="quiz-history__scores">
                     <span>
