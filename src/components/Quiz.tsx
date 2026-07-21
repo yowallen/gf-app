@@ -15,7 +15,7 @@ import { gateAuth } from '../data/auth'
 import { type GateActor } from '../hooks/useGateAuth'
 import { useQuizBank } from '../hooks/useQuizBank'
 import { useQuizScores } from '../hooks/useQuizScores'
-import { daysUntilNextWeek, formatWeekLabel } from '../lib/quizWeek'
+import { daysUntilNextWeek, formatWeekLabel, getWeekId } from '../lib/quizWeek'
 import { QuizEditor } from './QuizEditor'
 
 type Phase = 'hub' | 'editing' | 'playing' | 'results'
@@ -25,8 +25,57 @@ type AnswerRecord = {
   timedOut: boolean
 }
 
+type QuizProgress = {
+  weekId: string
+  author: QuizAuthor
+  index: number
+  answers: Record<string, AnswerRecord>
+  deadlineAt: number | null
+}
+
 type QuizProps = {
   actor: GateActor
+}
+
+function progressStorageKey(role: string): string {
+  return `antangoy-quiz-progress-${role}`
+}
+
+function loadProgress(role: string): QuizProgress | null {
+  try {
+    const raw = sessionStorage.getItem(progressStorageKey(role))
+    if (!raw) return null
+    const parsed: unknown = JSON.parse(raw)
+    if (typeof parsed !== 'object' || parsed === null) return null
+    const data = parsed as Record<string, unknown>
+    if (
+      typeof data.weekId !== 'string' ||
+      (data.author !== 'him' && data.author !== 'her') ||
+      typeof data.index !== 'number' ||
+      typeof data.answers !== 'object' ||
+      data.answers === null
+    ) {
+      return null
+    }
+    return {
+      weekId: data.weekId,
+      author: data.author,
+      index: data.index,
+      answers: data.answers as Record<string, AnswerRecord>,
+      deadlineAt:
+        typeof data.deadlineAt === 'number' ? data.deadlineAt : null,
+    }
+  } catch {
+    return null
+  }
+}
+
+function saveProgress(role: string, progress: QuizProgress): void {
+  sessionStorage.setItem(progressStorageKey(role), JSON.stringify(progress))
+}
+
+function clearProgress(role: string): void {
+  sessionStorage.removeItem(progressStorageKey(role))
 }
 
 function createQuestionDeadline(): number {
@@ -80,6 +129,8 @@ export function Quiz({ actor }: QuizProps) {
   const packRef = useRef(pack)
   const indexRef = useRef(index)
   const lockedRef = useRef(locked)
+  const deadlineAtRef = useRef(deadlineAt)
+  const restoredRef = useRef(false)
 
   useEffect(() => {
     answersRef.current = answers
@@ -97,13 +148,28 @@ export function Quiz({ actor }: QuizProps) {
     lockedRef.current = locked
   }, [locked])
 
-  function startQuestionTimer() {
-    setDeadlineAt(createQuestionDeadline())
-    setSecondsLeft(SECONDS_PER_QUESTION)
+  useEffect(() => {
+    deadlineAtRef.current = deadlineAt
+  }, [deadlineAt])
+
+  function persistPlayingProgress(
+    activePack: QuizPack,
+    activeIndex: number,
+    activeAnswers: Record<string, AnswerRecord>,
+    activeDeadline: number | null,
+  ) {
+    saveProgress(actor.role, {
+      weekId: getWeekId(),
+      author: activePack.author,
+      index: activeIndex,
+      answers: activeAnswers,
+      deadlineAt: activeDeadline,
+    })
   }
 
   function clearQuestionTimer() {
     setDeadlineAt(null)
+    deadlineAtRef.current = null
     setSecondsLeft(SECONDS_PER_QUESTION)
   }
 
@@ -146,6 +212,7 @@ export function Quiz({ actor }: QuizProps) {
       void recordScore(activePack.author, nextScore, activePack.questions.length)
     }
 
+    clearProgress(actor.role)
     setAnswers(nextAnswers)
     setLocked(false)
     clearQuestionTimer()
@@ -168,7 +235,16 @@ export function Quiz({ actor }: QuizProps) {
         const nextIndex = fromIndex + 1
         setIndex(nextIndex)
         indexRef.current = nextIndex
-        startQuestionTimer()
+        const nextDeadline = createQuestionDeadline()
+        setDeadlineAt(nextDeadline)
+        deadlineAtRef.current = nextDeadline
+        setSecondsLeft(SECONDS_PER_QUESTION)
+        persistPlayingProgress(
+          activePack,
+          nextIndex,
+          nextAnswers,
+          nextDeadline,
+        )
         setLocked(false)
         lockedRef.current = false
       }, 200)
@@ -196,9 +272,13 @@ export function Quiz({ actor }: QuizProps) {
     indexRef.current = 0
     setAnswers({})
     answersRef.current = {}
-    startQuestionTimer()
+    const nextDeadline = createQuestionDeadline()
+    setDeadlineAt(nextDeadline)
+    deadlineAtRef.current = nextDeadline
+    setSecondsLeft(SECONDS_PER_QUESTION)
     setLocked(false)
     lockedRef.current = false
+    persistPlayingProgress(nextPack, 0, {}, nextDeadline)
     setPhase('playing')
   }
 
@@ -214,6 +294,55 @@ export function Quiz({ actor }: QuizProps) {
     }
     advance(next, activePack, activeIndex)
   }
+
+  // Resume an unfinished attempt after reload (same week, not already finished)
+  useEffect(() => {
+    if (restoredRef.current || myRecord?.finished || phase !== 'hub') return
+
+    const saved = loadProgress(actor.role)
+    if (!saved || saved.weekId !== getWeekId()) {
+      if (saved) clearProgress(actor.role)
+      restoredRef.current = true
+      return
+    }
+
+    const himReady = countCompleteQuestions(bank.him) === QUESTIONS_PER_QUIZ
+    const herReady = countCompleteQuestions(bank.her) === QUESTIONS_PER_QUIZ
+    if (!himReady || !herReady) return
+
+    const nextPack = buildPack(saved.author, bank[saved.author])
+    if (nextPack.questions.length !== QUESTIONS_PER_QUIZ) {
+      clearProgress(actor.role)
+      restoredRef.current = true
+      return
+    }
+
+    const safeIndex = Math.min(
+      Math.max(saved.index, 0),
+      nextPack.questions.length - 1,
+    )
+    const deadline =
+      saved.deadlineAt != null && saved.deadlineAt > Date.now()
+        ? saved.deadlineAt
+        : createQuestionDeadline()
+
+    setPack(nextPack)
+    packRef.current = nextPack
+    setIndex(safeIndex)
+    indexRef.current = safeIndex
+    setAnswers(saved.answers)
+    answersRef.current = saved.answers
+    setDeadlineAt(deadline)
+    deadlineAtRef.current = deadline
+    setSecondsLeft(
+      Math.max(0, Math.ceil((deadline - Date.now()) / 1000)),
+    )
+    setLocked(false)
+    lockedRef.current = false
+    persistPlayingProgress(nextPack, safeIndex, saved.answers, deadline)
+    setPhase('playing')
+    restoredRef.current = true
+  }, [actor.role, bank, myRecord?.finished, phase])
 
   useEffect(() => {
     if (phase !== 'playing' || deadlineAt == null) return
@@ -243,6 +372,7 @@ export function Quiz({ actor }: QuizProps) {
   }, [phase, deadlineAt])
 
   function backToHub() {
+    clearProgress(actor.role)
     setPhase('hub')
     setPack(null)
     packRef.current = null

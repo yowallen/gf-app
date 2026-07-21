@@ -176,6 +176,56 @@ function alignBoard(board: QuizScoreBoard): {
   }
 }
 
+function preferPlayer(
+  local: PlayerQuizRecord | null,
+  remote: PlayerQuizRecord | null,
+): PlayerQuizRecord | null {
+  if (local?.finished && !remote?.finished) return local
+  if (remote?.finished && !local?.finished) return remote
+  if (local?.finished && remote?.finished) {
+    const localAt = local.attempts[0]?.playedAt ?? 0
+    const remoteAt = remote.attempts[0]?.playedAt ?? 0
+    return remoteAt >= localAt ? remote : local
+  }
+  return remote ?? local
+}
+
+function mergeHistory(
+  local: CoupleHistoryEntry[],
+  remote: CoupleHistoryEntry[],
+): CoupleHistoryEntry[] {
+  const byId = new Map<string, CoupleHistoryEntry>()
+  for (const entry of [...local, ...remote]) {
+    const existing = byId.get(entry.id)
+    if (!existing || entry.playedAt >= existing.playedAt) {
+      byId.set(entry.id, entry)
+    }
+  }
+  return [...byId.values()]
+    .sort((a, b) => b.playedAt - a.playedAt)
+    .slice(0, MAX_HISTORY)
+}
+
+/** Keep finished weekly scores when remote is empty/stale. */
+function mergeBoards(
+  local: QuizScoreBoard,
+  remote: QuizScoreBoard,
+): QuizScoreBoard {
+  return {
+    weekId: remote.weekId || local.weekId || getWeekId(),
+    version: Math.max(local.version ?? 1, remote.version ?? 1),
+    him: preferPlayer(local.him, remote.him),
+    her: preferPlayer(local.her, remote.her),
+    history: mergeHistory(local.history ?? [], remote.history ?? []),
+  }
+}
+
+function boardHasProgress(board: QuizScoreBoard): boolean {
+  return Boolean(
+    board.him || board.her || (board.history && board.history.length > 0),
+  )
+}
+
 function loadLocal(): QuizScoreBoard {
   try {
     localStorage.removeItem(LEGACY_STORAGE_KEY)
@@ -292,6 +342,11 @@ export function useQuizScores(role: GateRole, username: string) {
   const [syncError, setSyncError] = useState<string | null>(null)
   const authReadyRef = useRef(false)
   const boardRef = useRef(board)
+  const pendingScoreRef = useRef<{
+    nextRecord: PlayerQuizRecord
+    entry: CoupleHistoryEntry
+    weekId: string
+  } | null>(null)
 
   useEffect(() => {
     boardRef.current = board
@@ -303,18 +358,14 @@ export function useQuizScores(role: GateRole, username: string) {
     boardRef.current = next
 
     const fb = getFirebase()
-    if (!fb) return
-    if (!authReadyRef.current) {
-      setSyncState('connecting')
-      return
-    }
+    if (!fb || !authReadyRef.current) return
 
     try {
       await setDoc(doc(fb.db, 'quizScoreboards', quizBankId), {
         weekId: next.weekId,
         version: next.version,
-        him: null,
-        her: null,
+        him: next.him,
+        her: next.her,
         history: next.history,
         updatedAt: Date.now(),
       })
@@ -342,7 +393,7 @@ export function useQuizScores(role: GateRole, username: string) {
       const fb = getFirebase()
       if (!fb) return
       if (!authReadyRef.current) {
-        setSyncState('connecting')
+        pendingScoreRef.current = { nextRecord, entry, weekId }
         return
       }
 
@@ -358,10 +409,12 @@ export function useQuizScores(role: GateRole, username: string) {
           },
           { merge: true },
         )
+        pendingScoreRef.current = null
         setSyncError(null)
         setSyncState('synced')
       } catch (err) {
         console.error('Quiz scoreboard sync write failed', err)
+        pendingScoreRef.current = { nextRecord, entry, weekId }
         setSyncError(formatSyncError(err))
         setSyncState('error')
       }
@@ -373,8 +426,8 @@ export function useQuizScores(role: GateRole, username: string) {
     async (quizAuthor: QuizAuthor, score: number, total: number) => {
       await ensureCurrentWeek()
       const weekId = getWeekId()
-
-      if (boardRef.current[role]?.finished) return
+      const prev = boardRef.current
+      if (prev[role]?.finished) return
 
       const playedAt = Date.now()
       const attempt: QuizAttemptRecord = {
@@ -384,53 +437,43 @@ export function useQuizScores(role: GateRole, username: string) {
         playedAt,
       }
 
-      let nextRecord: PlayerQuizRecord | null = null
-      let historyEntry: CoupleHistoryEntry | null = null
-
-      setBoard((prev) => {
-        if (prev[role]?.finished) return prev
-
-        nextRecord = {
-          role,
-          username,
-          quizAuthor,
-          weekId,
-          best: score,
-          last: score,
-          questionTotal: total,
-          finished: true,
-          attempts: [attempt],
-        }
-
-        const nextBoard: QuizScoreBoard = {
-          ...prev,
-          weekId,
-          version: SCOREBOARD_RESET_VERSION,
-          [role]: nextRecord,
-          history: prev.history ?? [],
-        }
-
-        historyEntry = {
-          id: newId(),
-          weekId,
-          playedAt,
-          him: snapFromRecord(nextBoard.him),
-          her: snapFromRecord(nextBoard.her),
-        }
-
-        nextBoard.history = [historyEntry, ...nextBoard.history].slice(
-          0,
-          MAX_HISTORY,
-        )
-
-        boardRef.current = nextBoard
-        saveLocal(nextBoard)
-        return nextBoard
-      })
-
-      if (nextRecord && historyEntry) {
-        await persistScoreUpdate(nextRecord, historyEntry, weekId)
+      const nextRecord: PlayerQuizRecord = {
+        role,
+        username,
+        quizAuthor,
+        weekId,
+        best: score,
+        last: score,
+        questionTotal: total,
+        finished: true,
+        attempts: [attempt],
       }
+
+      const nextBoard: QuizScoreBoard = {
+        ...prev,
+        weekId,
+        version: SCOREBOARD_RESET_VERSION,
+        [role]: nextRecord,
+        history: prev.history ?? [],
+      }
+
+      const historyEntry: CoupleHistoryEntry = {
+        id: newId(),
+        weekId,
+        playedAt,
+        him: snapFromRecord(nextBoard.him),
+        her: snapFromRecord(nextBoard.her),
+      }
+
+      nextBoard.history = [historyEntry, ...(nextBoard.history ?? [])].slice(
+        0,
+        MAX_HISTORY,
+      )
+
+      boardRef.current = nextBoard
+      saveLocal(nextBoard)
+      setBoard(nextBoard)
+      await persistScoreUpdate(nextRecord, historyEntry, weekId)
     },
     [ensureCurrentWeek, persistScoreUpdate, role, username],
   )
@@ -441,11 +484,7 @@ export function useQuizScores(role: GateRole, username: string) {
 
   useEffect(() => {
     const fb = getFirebase()
-    if (!fb) {
-      setSyncState('local')
-      setSyncError(null)
-      return
-    }
+    if (!fb) return
 
     let unsubSnap: Unsubscribe | undefined
     let cancelled = false
@@ -468,26 +507,72 @@ export function useQuizScores(role: GateRole, username: string) {
       setSyncState('synced')
       setSyncError(null)
 
+      const pending = pendingScoreRef.current
+      if (pending) {
+        void persistScoreUpdate(
+          pending.nextRecord,
+          pending.entry,
+          pending.weekId,
+        )
+      }
+
       unsubSnap?.()
       unsubSnap = onSnapshot(
         doc(fb.db, 'quizScoreboards', quizBankId),
         (snap) => {
+          const local = boardRef.current
+
           if (!snap.exists()) {
-            void persistWeekReset(emptyBoard())
+            // Seed remote from local finished scores — never wipe them
+            void persistWeekReset(
+              boardHasProgress(local) ? local : emptyBoard(),
+            )
             return
           }
+
           const parsed = parseBoard(snap.data())
           if (!parsed) return
 
           const aligned = alignBoard(parsed)
           if (aligned.needsPersist) {
-            void persistWeekReset(aligned.board)
+            // Week rolled — keep local history, clear weekly slots via align
+            const mergedHistory = mergeHistory(
+              local.history ?? [],
+              aligned.board.history ?? [],
+            )
+            void persistWeekReset({
+              ...aligned.board,
+              history: mergedHistory,
+            })
             return
           }
 
-          setBoard(aligned.board)
-          boardRef.current = aligned.board
-          saveLocal(aligned.board)
+          const merged = mergeBoards(local, aligned.board)
+          setBoard(merged)
+          boardRef.current = merged
+          saveLocal(merged)
+
+          // Push local-only finished scores up if remote was missing them
+          const needsPush =
+            (merged.him?.finished && !aligned.board.him?.finished) ||
+            (merged.her?.finished && !aligned.board.her?.finished)
+          if (needsPush) {
+            void setDoc(
+              doc(fb.db, 'quizScoreboards', quizBankId),
+              {
+                weekId: merged.weekId,
+                version: SCOREBOARD_RESET_VERSION,
+                him: merged.him,
+                her: merged.her,
+                history: merged.history,
+                updatedAt: Date.now(),
+              },
+              { merge: true },
+            ).catch((err: unknown) => {
+              console.error('Quiz scoreboard heal write failed', err)
+            })
+          }
+
           setSyncState('synced')
           setSyncError(null)
         },
@@ -505,7 +590,7 @@ export function useQuizScores(role: GateRole, username: string) {
       unsubAuth()
       unsubSnap?.()
     }
-  }, [persistWeekReset])
+  }, [persistScoreUpdate, persistWeekReset])
 
   return {
     board,
