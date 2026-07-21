@@ -17,7 +17,7 @@ function App() {
   const { unlocked, actor, unlock, signOut } = useGateAuth()
   const [ready, setReady] = useState(false)
   const onIntroComplete = useCallback(() => setReady(true), [])
-  const { theme, setTheme } = useTheme()
+  const { theme, setTheme } = useTheme(actor?.role ?? 'her')
 
   if (!unlocked || !actor) {
     return <LoginGate onUnlock={unlock} />

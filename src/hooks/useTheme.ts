@@ -1,21 +1,41 @@
 import { useCallback, useEffect, useState } from 'react'
+import type { GateRole } from '../data/auth'
 
 export type ThemeId = 'green' | 'purple'
 
-const STORAGE_KEY = 'antangoy-theme'
+const STORAGE_PREFIX = 'antangoy-theme'
+const LEGACY_STORAGE_KEY = 'antangoy-theme'
+
+/** Him defaults to Bloom; her keeps Meadow. */
+function defaultThemeForRole(role: GateRole): ThemeId {
+  return role === 'him' ? 'purple' : 'green'
+}
+
+function storageKeyForRole(role: GateRole): string {
+  return `${STORAGE_PREFIX}-${role}`
+}
 
 function isThemeId(value: string | null): value is ThemeId {
   return value === 'green' || value === 'purple'
 }
 
-function readStoredTheme(): ThemeId {
+function readStoredTheme(role: GateRole): ThemeId {
   try {
-    const raw = localStorage.getItem(STORAGE_KEY)
+    const raw = localStorage.getItem(storageKeyForRole(role))
     if (isThemeId(raw)) return raw
+
+    // Shared legacy key only seeds her — him always defaults to Bloom
+    if (role === 'her') {
+      const legacy = localStorage.getItem(LEGACY_STORAGE_KEY)
+      if (isThemeId(legacy)) {
+        localStorage.setItem(storageKeyForRole(role), legacy)
+        return legacy
+      }
+    }
   } catch {
     /* ignore */
   }
-  return 'green'
+  return defaultThemeForRole(role)
 }
 
 function applyTheme(theme: ThemeId): void {
@@ -26,26 +46,32 @@ function applyTheme(theme: ThemeId): void {
   }
 }
 
-export function useTheme() {
-  const [theme, setThemeState] = useState<ThemeId>(() => {
-    if (typeof document === 'undefined') return 'green'
-    const initial = readStoredTheme()
-    applyTheme(initial)
-    return initial
+export function useTheme(role: GateRole) {
+  const [themes, setThemes] = useState<Record<GateRole, ThemeId>>(() => {
+    const him = readStoredTheme('him')
+    const her = readStoredTheme('her')
+    const initial = role === 'him' ? him : her
+    if (typeof document !== 'undefined') applyTheme(initial)
+    return { him, her }
   })
+
+  const theme = themes[role]
 
   useEffect(() => {
     applyTheme(theme)
     try {
-      localStorage.setItem(STORAGE_KEY, theme)
+      localStorage.setItem(storageKeyForRole(role), theme)
     } catch {
       /* ignore */
     }
-  }, [theme])
+  }, [theme, role])
 
-  const setTheme = useCallback((next: ThemeId) => {
-    setThemeState(next)
-  }, [])
+  const setTheme = useCallback(
+    (next: ThemeId) => {
+      setThemes((prev) => ({ ...prev, [role]: next }))
+    },
+    [role],
+  )
 
   return { theme, setTheme }
 }
