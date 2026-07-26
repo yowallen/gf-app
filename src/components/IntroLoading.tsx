@@ -1,18 +1,23 @@
-import { useEffect, useState, type CSSProperties } from 'react'
-import { milestones } from '../data/milestones'
+import { useEffect, useRef, useState, type CSSProperties } from 'react'
+import { getMilestones } from '../data/milestones'
 import { site } from '../data/site'
 
 type IntroLoadingProps = {
+  /** Shared garden data finished syncing (or timed out). */
+  dataReady: boolean
   onComplete: () => void
 }
 
-export function IntroLoading({ onComplete }: IntroLoadingProps) {
+export function IntroLoading({ dataReady, onComplete }: IntroLoadingProps) {
+  const milestones = getMilestones()
   const [activeIndex, setActiveIndex] = useState(-1)
+  const [barsDone, setBarsDone] = useState(false)
   const [done, setDone] = useState(false)
+  const completedRef = useRef(false)
 
   useEffect(() => {
     let i = 0
-    let finished = false
+    let cancelled = false
     const stepMs = 700
     setActiveIndex(0)
 
@@ -23,24 +28,35 @@ export function IntroLoading({ onComplete }: IntroLoadingProps) {
       } else {
         window.clearInterval(interval)
         window.setTimeout(() => {
-          if (finished) return
-          finished = true
-          setDone(true)
-          window.setTimeout(onComplete, 700)
+          if (!cancelled) setBarsDone(true)
         }, 500)
       }
     }, stepMs)
 
     return () => {
-      finished = true
+      cancelled = true
       window.clearInterval(interval)
     }
-  }, [onComplete])
+  }, [milestones.length])
+
+  useEffect(() => {
+    if (!barsDone || !dataReady || completedRef.current) return
+    completedRef.current = true
+    setDone(true)
+    const timer = window.setTimeout(onComplete, 700)
+    return () => window.clearTimeout(timer)
+  }, [barsDone, dataReady, onComplete])
+
+  const waitingOnData = barsDone && !dataReady
 
   return (
     <div className={`intro${done ? ' is-done' : ''}`} aria-live="polite">
       <p className="intro__brand">{site.nickname}</p>
-      <p className="intro__hint">Watering our little garden…</p>
+      <p className="intro__hint">
+        {waitingOnData
+          ? 'Almost ready — gathering our shared garden…'
+          : 'Watering our little garden…'}
+      </p>
       <div className="intro__bars">
         {milestones.map((m, index) => (
           <div
@@ -58,6 +74,11 @@ export function IntroLoading({ onComplete }: IntroLoadingProps) {
           </div>
         ))}
       </div>
+      {waitingOnData ? (
+        <p className="intro__sync" role="status">
+          Loading meets, quizzes &amp; bucket list…
+        </p>
+      ) : null}
     </div>
   )
 }

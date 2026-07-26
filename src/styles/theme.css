@@ -394,6 +394,25 @@ a {
   font-size: 0.95rem;
 }
 
+.intro__sync {
+  position: relative;
+  margin: 1.75rem 0 0;
+  font-size: 0.85rem;
+  letter-spacing: 0.04em;
+  opacity: 0.7;
+  animation: introSyncPulse 1.4s ease-in-out infinite;
+}
+
+@keyframes introSyncPulse {
+  0%,
+  100% {
+    opacity: 0.45;
+  }
+  50% {
+    opacity: 0.9;
+  }
+}
+
 .intro__bars {
   position: relative;
   width: min(100%, 320px);

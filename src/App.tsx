@@ -10,29 +10,33 @@ import { Milestones } from './components/Milestones'
 import { Nav } from './components/Nav'
 import { PhotoTimeline } from './components/PhotoTimeline'
 import { Quiz } from './components/Quiz'
-import { useGateAuth } from './hooks/useGateAuth'
+import { useBootstrapSync } from './hooks/useBootstrapSync'
+import { useGateAuth, type GateActor } from './hooks/useGateAuth'
 import { useTheme } from './hooks/useTheme'
 
-function App() {
-  const { unlocked, actor, unlock, signOut } = useGateAuth()
-  const [ready, setReady] = useState(false)
-  const onIntroComplete = useCallback(() => setReady(true), [])
-  const { theme, setTheme } = useTheme(actor?.role ?? 'her')
-
-  if (!unlocked || !actor) {
-    return <LoginGate onUnlock={unlock} />
-  }
+function AuthenticatedApp({
+  actor,
+  onSignOut,
+}: {
+  actor: GateActor
+  onSignOut: () => void
+}) {
+  const { theme, setTheme } = useTheme(actor.role)
+  const { ready: dataReady } = useBootstrapSync(actor.role, actor.username)
+  const [homeReady, setHomeReady] = useState(false)
+  const onIntroComplete = useCallback(() => setHomeReady(true), [])
 
   return (
     <>
-      {!ready && <IntroLoading onComplete={onIntroComplete} />}
-      {ready && (
+      {!homeReady ? (
+        <IntroLoading dataReady={dataReady} onComplete={onIntroComplete} />
+      ) : (
         <>
           <Nav
             theme={theme}
             actor={actor}
             onThemeChange={setTheme}
-            onSignOut={signOut}
+            onSignOut={onSignOut}
           />
           <main>
             <Hero />
@@ -48,6 +52,16 @@ function App() {
       )}
     </>
   )
+}
+
+function App() {
+  const { unlocked, actor, unlock, signOut } = useGateAuth()
+
+  if (!unlocked || !actor) {
+    return <LoginGate onUnlock={unlock} />
+  }
+
+  return <AuthenticatedApp actor={actor} onSignOut={signOut} />
 }
 
 export default App
