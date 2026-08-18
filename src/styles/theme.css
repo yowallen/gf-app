@@ -3303,6 +3303,11 @@ a {
   position: relative;
   width: 5.5rem;
   margin: 0 auto 0.65rem;
+  padding-top: 3.5rem;
+  min-height: 6rem;
+  display: flex;
+  align-items: flex-end;
+  justify-content: center;
 }
 
 .guest-sheet__pot {
@@ -3408,13 +3413,28 @@ a {
 
 .guest-sheet__panel {
   width: min(100%, 26rem);
-  max-height: min(88dvh, 40rem);
-  overflow: auto;
+  max-height: 90dvh;
+  display: flex;
+  flex-direction: column;
   background: var(--white);
   border-radius: 18px 18px 14px 14px;
   padding: 1.35rem 1.25rem 1.25rem;
   box-shadow: var(--shadow-soft);
   animation: guestSheetUp 0.28s var(--ease);
+}
+
+.guest-sheet__panel > * {
+  flex-shrink: 0;
+}
+
+.guest-sheet__panel > :last-child {
+  flex-shrink: 1;
+}
+
+.guest-sheet__body {
+  overflow-y: auto;
+  flex-shrink: 1;
+  min-height: 0;
 }
 
 @keyframes guestSheetUp {
@@ -3450,6 +3470,9 @@ a {
   color: var(--ink);
   line-height: 1.55;
   white-space: pre-wrap;
+  word-wrap: break-word;
+  overflow-wrap: break-word;
+  word-break: break-word;
 }
 
 .guest-sheet__label {
