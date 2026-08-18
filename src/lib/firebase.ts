@@ -25,6 +25,9 @@ export const meetLogId =
 export const quizBankId =
   (import.meta.env.VITE_QUIZ_BANK_ID as string | undefined) ?? 'antangoy-quizzes'
 
+export const gardenId =
+  (import.meta.env.VITE_GARDEN_ID as string | undefined) ?? 'antangoy-garden'
+
 function isUsableEnvValue(value: string | undefined): boolean {
   if (!value) return false
   const trimmed = value.trim()

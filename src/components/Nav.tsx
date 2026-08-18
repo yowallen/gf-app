@@ -1,7 +1,7 @@
 import { site } from '../data/site'
 import { type GateActor } from '../hooks/useGateAuth'
 import { type ThemeId } from '../hooks/useTheme'
-import {SignOutIcon} from '@phosphor-icons/react'
+import { LogOut } from 'lucide-react'
 
 const links = [
   { href: '#timeline', label: 'Meets' },
@@ -12,14 +12,19 @@ const links = [
   { href: '#milestones', label: 'Us' },
 ]
 
-type NavProps = {
+type NavProps = Readonly<{
   theme: ThemeId
   actor: GateActor
   onThemeChange: (theme: ThemeId) => void
   onSignOut: () => void
-}
+}>
 
-export function Nav({ theme, actor, onThemeChange, onSignOut }: NavProps) {
+export function Nav({
+  theme,
+  actor,
+  onThemeChange,
+  onSignOut,
+}: NavProps) {
   return (
     <nav className="nav" aria-label="Sections">
       <a className="nav__brand" href="#top">
@@ -33,7 +38,7 @@ export function Nav({ theme, actor, onThemeChange, onSignOut }: NavProps) {
             </li>
           ))}
         </ul>
-        <div className="theme-toggle" role="group" aria-label="Garden theme">
+        <div className="theme-toggle" aria-label="Garden theme">
           <button
             type="button"
             className={`theme-toggle__btn${theme === 'green' ? ' is-active' : ''}`}
@@ -61,7 +66,7 @@ export function Nav({ theme, actor, onThemeChange, onSignOut }: NavProps) {
           onClick={onSignOut}
           aria-label={`Sign out ${actor.username}`}
         >
-          <SignOutIcon size={16} style={{ marginTop: '5px' }} />
+          <LogOut size={16} />
         </button>
       </div>
     </nav>

@@ -18,6 +18,9 @@ export const gateAuth = {
     password: '01112002',
     passwordHint: 'Your key to the garden',
   },
+  guest: {
+    username: 'guest',
+  },
   usernameHint: 'Your username',
   session: {
     /** `local` keeps you signed in across visits; `session` clears when the tab closes */
@@ -27,10 +30,20 @@ export const gateAuth = {
   },
 } as const
 
-export type GateRole = 'her' | 'him'
+export type CoupleRole = 'her' | 'him'
+export type GateRole = CoupleRole | 'guest'
+
+export function isCoupleRole(role: GateRole): role is CoupleRole {
+  return role === 'her' || role === 'him'
+}
 
 export function usernameForRole(role: GateRole): string {
+  if (role === 'guest') return gateAuth.guest.username
   return role === 'her' ? gateAuth.her.username : gateAuth.him.username
+}
+
+export function isValidGuestUsername(value: string): boolean {
+  return value.trim().length >= 4
 }
 
 /** Former him usernames — remap so old “by …” labels stay current. */

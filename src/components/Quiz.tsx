@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useRef, useState, type RefObject } from 'react'
 import {
   QUESTIONS_PER_QUIZ,
   SECONDS_PER_QUESTION,
@@ -33,9 +33,24 @@ type QuizProgress = {
   deadlineAt: number | null
 }
 
-type QuizProps = {
-  actor: GateActor
-}
+type QuizHistoryEntrySnapshot = Readonly<{
+  id: string
+  weekId?: string
+  playedAt: number
+  him?: { score: number; total: number } | null
+  her?: { score: number; total: number } | null
+}>
+
+type QuizBoardSnapshot = Readonly<{
+  him: { finished?: boolean; last: number; questionTotal: number } | null | undefined
+  her: { finished?: boolean; last: number; questionTotal: number } | null | undefined
+}>
+
+type CoupleActor = GateActor & { role: 'her' | 'him' }
+
+type QuizProps = Readonly<{
+  actor: CoupleActor
+}>
 
 function progressStorageKey(role: string): string {
   return `antangoy-quiz-progress-${role}`
@@ -102,7 +117,398 @@ function formatScoreSnap(
   return `${snap.score}/${snap.total}`
 }
 
+function resolveCombinedSyncState(
+  syncState: string,
+  scoreSyncState: string,
+): string {
+  if (syncState === 'error' || scoreSyncState === 'error') return 'error'
+  if (syncState === 'connecting' || scoreSyncState === 'connecting') {
+    return 'connecting'
+  }
+  if (syncState === 'local' || scoreSyncState === 'local') return 'local'
+  return 'synced'
+}
+
+function getQuizStatusMessage(state: string): string {
+  switch (state) {
+    case 'synced':
+      return 'Live sync on — quizzes and scores stay shared.'
+    case 'connecting':
+      return 'Connecting quiz sync…'
+    case 'error':
+      return 'Sync failed — local quizzes and scores still work on this phone.'
+    default:
+      return 'Local mode — add Firebase env vars to sync across phones.'
+  }
+}
+
+function getQuizPromptState(
+  waitingOnMe: boolean,
+  waitingOnThem: boolean,
+  bothReady: boolean,
+): string {
+  if (waitingOnMe) return 'Finish your questionnaire first'
+  if (waitingOnThem) return 'Waiting for them to finish their questionnaire'
+  if (bothReady) return 'Both ready — one try this week'
+  return 'Questionnaires incomplete'
+}
+
+function getPlayButtonLabel(
+  canPlayTheirs: boolean,
+  waitingOnMe: boolean,
+  waitingOnThem: boolean,
+  authorLabel: string,
+): string {
+  if (canPlayTheirs) return `Start ${authorLabel.toLowerCase()}`
+  if (waitingOnMe) return 'Lock your quiz first'
+  if (waitingOnThem) return 'Waiting on them'
+  return 'Not ready yet'
+}
+
+function getHistoryLabel(entry: { weekId?: string; playedAt: number }): string {
+  if (entry.weekId && entry.weekId !== 'legacy') {
+    return `Week of ${formatWeekLabel(entry.weekId)}`
+  }
+  return formatHistoryDate(entry.playedAt)
+}
+
+function QuizScoreboard({
+  role,
+  tally,
+  currentWeekLabel,
+  daysLeft,
+  history,
+  historyDialogRef,
+}: Readonly<{
+  role: 'her' | 'him'
+  tally: { himPoints: number; herPoints: number }
+  currentWeekLabel: string
+  daysLeft: number
+  history: QuizHistoryEntrySnapshot[]
+  historyDialogRef: RefObject<HTMLDialogElement | null>
+}>) {
+  return (
+    <div className="quiz-scoreboard">
+      <p className="quiz-scoreboard__eyebrow">Tallied points</p>
+      <div className="quiz-scoreboard__players">
+        {(['him', 'her'] as const).map((roleOption) => {
+          const isMe = roleOption === role
+          const points = roleOption === 'him' ? tally.himPoints : tally.herPoints
+
+          return (
+            <div
+              key={roleOption}
+              className={`quiz-scoreboard__player${isMe ? ' is-you' : ''}`}
+            >
+              <p className="quiz-scoreboard__label">
+                {displayName(roleOption)}
+                {isMe ? ' · you' : ''}
+              </p>
+              <p className="quiz-scoreboard__points">{points}</p>
+            </div>
+          )
+        })}
+      </div>
+
+      <div className="quiz-week">
+        <p className="quiz-week__eyebrow">This week’s round</p>
+        <p className="quiz-week__range">{currentWeekLabel}</p>
+        <p className="quiz-week__note">
+          Both questionnaires must be ready before anyone can play. One try each
+          · resets in {daysLeft} day{daysLeft === 1 ? '' : 's'}.
+        </p>
+      </div>
+
+      <div className="quiz-scoreboard__actions">
+        <button
+          type="button"
+          className="btn btn--ghost"
+          onClick={() => historyDialogRef.current?.showModal()}
+        >
+          Score history{history.length > 0 ? ` (${history.length})` : ''}
+        </button>
+      </div>
+    </div>
+  )
+}
+
+function QuizHistoryDialog({
+  history,
+  historyDialogRef,
+}: Readonly<{
+  history: QuizHistoryEntrySnapshot[]
+  historyDialogRef: RefObject<HTMLDialogElement | null>
+}>) {
+  return (
+    <dialog ref={historyDialogRef} className="quiz-history-dialog">
+      <div className="quiz-history-dialog__panel">
+        <div className="quiz-history-dialog__head">
+          <div>
+            <p className="quiz-history-dialog__eyebrow">Scoreboard</p>
+            <h3 className="quiz-history-dialog__title">Score history</h3>
+          </div>
+          <button
+            type="button"
+            className="btn btn--ghost"
+            onClick={() => historyDialogRef.current?.close()}
+          >
+            Close
+          </button>
+        </div>
+
+        {history.length > 0 ? (
+          <ul className="quiz-history__list">
+            {history.map((entry) => (
+              <li key={entry.id} className="quiz-history__item">
+                <p className="quiz-history__when">{getHistoryLabel(entry)}</p>
+                <div className="quiz-history__scores">
+                  <span>
+                    {displayName('him')}{' '}
+                    <strong>{formatScoreSnap(entry.him)}</strong>
+                  </span>
+                  <span>
+                    {displayName('her')}{' '}
+                    <strong>{formatScoreSnap(entry.her)}</strong>
+                  </span>
+                </div>
+              </li>
+            ))}
+          </ul>
+        ) : (
+          <p className="quiz-history-dialog__empty">
+            No rounds yet — finish a quiz to start the record.
+          </p>
+        )}
+      </div>
+    </dialog>
+  )
+}
+
+function QuizHub({
+  myReady,
+  myRecord,
+  theirMeta,
+  theirAuthor,
+  theirReady,
+  board,
+  daysLeft,
+  waitingOnMe,
+  waitingOnThem,
+  bothReady,
+  canPlayTheirs,
+  onEdit,
+  onStart,
+}: Readonly<{
+  myReady: number
+  myRecord: { finished?: boolean; last: number; questionTotal: number } | null | undefined
+  theirMeta: ReturnType<typeof getQuizMeta>
+  theirAuthor: QuizAuthor
+  theirReady: number
+  board: QuizBoardSnapshot
+  daysLeft: number
+  waitingOnMe: boolean
+  waitingOnThem: boolean
+  bothReady: boolean
+  canPlayTheirs: boolean
+  onEdit: () => void
+  onStart: (author: QuizAuthor) => void
+}>) {
+  return (
+    <>
+      <div className="quiz-mine">
+        <div>
+          <p className="quiz-mine__eyebrow">Your questionnaire</p>
+          <p className="quiz-mine__copy">
+            {myReady === QUESTIONS_PER_QUIZ
+              ? `Your ${QUESTIONS_PER_QUIZ} questions are set for this week.`
+              : `${myReady}/${QUESTIONS_PER_QUIZ} ready — write a fresh set for this week.`}
+          </p>
+        </div>
+        <button type="button" className="btn btn--ghost" onClick={onEdit}>
+          {myReady === 0 ? 'Make my quiz' : 'Edit my quiz'}
+        </button>
+      </div>
+
+      <div className="quiz-hub">
+        {myRecord?.finished ? (
+          <article className="quiz-pick quiz-pick--results is-recommended">
+            <p className="quiz-pick__eyebrow">{theirMeta.title} · this week</p>
+            <h3 className="quiz-pick__title">You’re done for this week</h3>
+            <p className="quiz-pick__sub">
+              Scores stay up until next week — then you’ll both write ten new
+              questions and play again.
+            </p>
+
+            <div className="quiz-pick__duel">
+              <div className="quiz-pick__duel-side">
+                <p className="quiz-pick__duel-label">You</p>
+                <p className="quiz-pick__duel-score">
+                  {myRecord.last}
+                  <span>/{myRecord.questionTotal}</span>
+                </p>
+                <p className="quiz-pick__duel-meta">This week’s score</p>
+              </div>
+              <div className="quiz-pick__duel-vs" aria-hidden="true">
+                vs
+              </div>
+              <div className="quiz-pick__duel-side">
+                <p className="quiz-pick__duel-label">{displayName(theirAuthor)}</p>
+                {board[theirAuthor]?.finished ? (
+                  <>
+                    <p className="quiz-pick__duel-score">
+                      {board[theirAuthor]!.last}
+                      <span>/{board[theirAuthor]!.questionTotal}</span>
+                    </p>
+                    <p className="quiz-pick__duel-meta">This week’s score</p>
+                  </>
+                ) : (
+                  <>
+                    <p className="quiz-pick__duel-score is-locked">?</p>
+                    <p className="quiz-pick__duel-meta">Waiting on them</p>
+                  </>
+                )}
+              </div>
+            </div>
+
+            <p className="quiz-pick__score">
+              Next round in {daysLeft} day{daysLeft === 1 ? '' : 's'}
+            </p>
+          </article>
+        ) : (
+          <article className="quiz-pick is-recommended">
+            <p className="quiz-pick__eyebrow">{theirMeta.forLabel}</p>
+            <h3 className="quiz-pick__title">{theirMeta.title}</h3>
+            <p className="quiz-pick__sub">{theirMeta.subtitle}</p>
+            <p className="quiz-pick__meta">
+              You {myReady}/{QUESTIONS_PER_QUIZ} · Them {theirReady}/
+              {QUESTIONS_PER_QUIZ} · {SECONDS_PER_QUESTION}s each
+            </p>
+            <p className="quiz-pick__score">
+              {getQuizPromptState(waitingOnMe, waitingOnThem, bothReady)}
+            </p>
+            <button
+              type="button"
+              className="btn"
+              onClick={() => onStart(theirAuthor)}
+              disabled={!canPlayTheirs}
+            >
+              {getPlayButtonLabel(
+                canPlayTheirs,
+                waitingOnMe,
+                waitingOnThem,
+                theirMeta.authorLabel,
+              )}
+            </button>
+          </article>
+        )}
+      </div>
+    </>
+  )
+}
+
+function QuizPlayingView({
+  pack,
+  index,
+  total,
+  secondsLeft,
+  current,
+  answers,
+  locked,
+  onSelect,
+}: Readonly<{
+  pack: QuizPack
+  index: number
+  total: number
+  secondsLeft: number
+  current: QuizQuestion
+  answers: Record<string, AnswerRecord>
+  locked: boolean
+  onSelect: (option: string) => void
+}>) {
+  const timerUrgent = secondsLeft <= 10
+
+  return (
+    <div className="quiz-card">
+      <div className="quiz-playing-head">
+        <p className="quiz-progress">
+          {pack.authorLabel} · Question {index + 1} of {total}
+        </p>
+        <p className={`quiz-timer${timerUrgent ? ' is-urgent' : ''}`} aria-live="polite">
+          {formatTimer(secondsLeft)}
+        </p>
+      </div>
+      <div
+        className="quiz-timer-bar"
+        aria-hidden="true"
+        style={{
+          ['--timer-pct' as string]: `${(secondsLeft / SECONDS_PER_QUESTION) * 100}%`,
+        }}
+      />
+      <h3 className="quiz-prompt">{current.prompt}</h3>
+      <div className="quiz-options">
+        {current.options.map((option) => (
+          <button
+            key={option}
+            type="button"
+            className={`quiz-option${answers[current.id]?.chosen === option ? ' is-selected' : ''}`}
+            onClick={() => onSelect(option)}
+            disabled={locked}
+          >
+            {option}
+          </button>
+        ))}
+      </div>
+    </div>
+  )
+}
+
+function QuizResultsView({
+  pack,
+  score,
+  total,
+  answers,
+  onBack,
+}: Readonly<{
+  pack: QuizPack
+  score: number
+  total: number
+  answers: Record<string, AnswerRecord>
+  onBack: () => void
+}>) {
+  return (
+    <div className="quiz-card quiz-results">
+      <p className="quiz-score">{score}/{total}</p>
+      <p className="quiz-score-label">
+        {scoreLabel(score, total)} · {pack.title}
+      </p>
+      <ul className="compare-list">
+        {pack.questions.map((q) => {
+          const record = answers[q.id]
+          const chosen = record?.chosen
+          const timedOut = record?.timedOut ?? false
+          const match = !timedOut && chosen === q.correctAnswer
+          return (
+            <li key={q.id} className={`compare-item${match ? ' is-match' : ' is-miss'}`}>
+              <p className="compare-item__q">{q.prompt}</p>
+              <div className="compare-item__answers">
+                <span>You: {timedOut ? 'Timed out' : (chosen ?? '—')}</span>
+                <span>Answer: {q.correctAnswer}</span>
+              </div>
+            </li>
+          )
+        })}
+      </ul>
+      <div className="quiz-results__actions">
+        <button type="button" className="btn" onClick={onBack}>
+          Back to scores
+        </button>
+      </div>
+    </div>
+  )
+}
+
 export function Quiz({ actor }: QuizProps) {
+  const role = actor.role
   const { bank, syncState, syncError, saveQuestionnaire } = useQuizBank()
   const {
     board,
@@ -113,7 +519,7 @@ export function Quiz({ actor }: QuizProps) {
     weekLabel,
     syncState: scoreSyncState,
     syncError: scoreSyncError,
-  } = useQuizScores(actor.role, actor.username)
+  } = useQuizScores(role, actor.username)
   const [phase, setPhase] = useState<Phase>('hub')
   const [pack, setPack] = useState<QuizPack | null>(null)
   const [index, setIndex] = useState(0)
@@ -150,20 +556,23 @@ export function Quiz({ actor }: QuizProps) {
     deadlineAtRef.current = deadlineAt
   }, [deadlineAt])
 
-  function persistPlayingProgress(
-    activePack: QuizPack,
-    activeIndex: number,
-    activeAnswers: Record<string, AnswerRecord>,
-    activeDeadline: number | null,
-  ) {
-    saveProgress(actor.role, {
-      weekId: getWeekId(),
-      author: activePack.author,
-      index: activeIndex,
-      answers: activeAnswers,
-      deadlineAt: activeDeadline,
-    })
-  }
+  const persistPlayingProgress = useCallback(
+    (
+      activePack: QuizPack,
+      activeIndex: number,
+      activeAnswers: Record<string, AnswerRecord>,
+      activeDeadline: number | null,
+    ) => {
+      saveProgress(role, {
+        weekId: getWeekId(),
+        author: activePack.author,
+        index: activeIndex,
+        answers: activeAnswers,
+        deadlineAt: activeDeadline,
+      })
+    },
+    [role],
+  )
 
   function clearQuestionTimer() {
     setDeadlineAt(null)
@@ -171,17 +580,17 @@ export function Quiz({ actor }: QuizProps) {
     setSecondsLeft(SECONDS_PER_QUESTION)
   }
 
-  const myAuthor: QuizAuthor = actor.role
+  const myAuthor: QuizAuthor = role
   const myQuestions = bank[myAuthor]
   const current = pack?.questions[index]
   const total = pack?.questions.length ?? 0
 
-  function buildPack(author: QuizAuthor, questions: QuizQuestion[]): QuizPack {
+  const buildPack = useCallback((author: QuizAuthor, questions: QuizQuestion[]): QuizPack => {
     return {
       ...getQuizMeta(author),
       questions: playableQuestions(questions),
     }
-  }
+  }, [])
 
   function computeScore(
     activePack: QuizPack,
@@ -210,7 +619,7 @@ export function Quiz({ actor }: QuizProps) {
       void recordScore(activePack.author, nextScore, activePack.questions.length)
     }
 
-    clearProgress(actor.role)
+    clearProgress(role)
     setAnswers(nextAnswers)
     setLocked(false)
     clearQuestionTimer()
@@ -237,12 +646,7 @@ export function Quiz({ actor }: QuizProps) {
         setDeadlineAt(nextDeadline)
         deadlineAtRef.current = nextDeadline
         setSecondsLeft(SECONDS_PER_QUESTION)
-        persistPlayingProgress(
-          activePack,
-          nextIndex,
-          nextAnswers,
-          nextDeadline,
-        )
+        persistPlayingProgress(activePack, nextIndex, nextAnswers, nextDeadline)
         setLocked(false)
         lockedRef.current = false
       }, 200)
@@ -255,10 +659,8 @@ export function Quiz({ actor }: QuizProps) {
 
   function startQuiz(author: QuizAuthor) {
     if (myRecord?.finished) return
-    const himReady =
-      countCompleteQuestions(bank.him) === QUESTIONS_PER_QUIZ
-    const herReady =
-      countCompleteQuestions(bank.her) === QUESTIONS_PER_QUIZ
+    const himReady = countCompleteQuestions(bank.him) === QUESTIONS_PER_QUIZ
+    const herReady = countCompleteQuestions(bank.her) === QUESTIONS_PER_QUIZ
     if (!himReady || !herReady) return
 
     const nextPack = buildPack(author, bank[author])
@@ -293,13 +695,12 @@ export function Quiz({ actor }: QuizProps) {
     advance(next, activePack, activeIndex)
   }
 
-  // Resume an unfinished attempt after reload (same week, not already finished)
   useEffect(() => {
     if (restoredRef.current || myRecord?.finished || phase !== 'hub') return
 
-    const saved = loadProgress(actor.role)
-    if (!saved || saved.weekId !== getWeekId()) {
-      if (saved) clearProgress(actor.role)
+    const saved = loadProgress(role)
+    if (!saved?.weekId || saved.weekId !== getWeekId()) {
+      if (saved) clearProgress(role)
       restoredRef.current = true
       return
     }
@@ -310,37 +711,37 @@ export function Quiz({ actor }: QuizProps) {
 
     const nextPack = buildPack(saved.author, bank[saved.author])
     if (nextPack.questions.length !== QUESTIONS_PER_QUIZ) {
-      clearProgress(actor.role)
+      clearProgress(role)
       restoredRef.current = true
       return
     }
 
-    const safeIndex = Math.min(
-      Math.max(saved.index, 0),
-      nextPack.questions.length - 1,
-    )
+    const safeIndex = Math.min(Math.max(saved.index, 0), nextPack.questions.length - 1)
     const deadline =
       saved.deadlineAt != null && saved.deadlineAt > Date.now()
         ? saved.deadlineAt
         : createQuestionDeadline()
 
-    setPack(nextPack)
-    packRef.current = nextPack
-    setIndex(safeIndex)
-    indexRef.current = safeIndex
-    setAnswers(saved.answers)
-    answersRef.current = saved.answers
-    setDeadlineAt(deadline)
-    deadlineAtRef.current = deadline
-    setSecondsLeft(
-      Math.max(0, Math.ceil((deadline - Date.now()) / 1000)),
-    )
-    setLocked(false)
-    lockedRef.current = false
-    persistPlayingProgress(nextPack, safeIndex, saved.answers, deadline)
-    setPhase('playing')
-    restoredRef.current = true
-  }, [actor.role, bank, myRecord?.finished, phase])
+    const restore = () => {
+      setPack(nextPack)
+      packRef.current = nextPack
+      setIndex(safeIndex)
+      indexRef.current = safeIndex
+      setAnswers(saved.answers)
+      answersRef.current = saved.answers
+      setDeadlineAt(deadline)
+      deadlineAtRef.current = deadline
+      setSecondsLeft(Math.max(0, Math.ceil((deadline - Date.now()) / 1000)))
+      setLocked(false)
+      lockedRef.current = false
+      persistPlayingProgress(nextPack, safeIndex, saved.answers, deadline)
+      setPhase('playing')
+      restoredRef.current = true
+    }
+
+    const timeout = window.setTimeout(restore, 0)
+    return () => window.clearTimeout(timeout)
+  }, [bank, buildPack, myRecord?.finished, persistPlayingProgress, phase, role])
 
   useEffect(() => {
     if (phase !== 'playing' || deadlineAt == null) return
@@ -370,7 +771,7 @@ export function Quiz({ actor }: QuizProps) {
   }, [phase, deadlineAt])
 
   function backToHub() {
-    clearProgress(actor.role)
+    clearProgress(role)
     setPhase('hub')
     setPack(null)
     packRef.current = null
@@ -389,31 +790,19 @@ export function Quiz({ actor }: QuizProps) {
   }
 
   const score = pack ? computeScore(pack, answers) : 0
-  const timerUrgent = secondsLeft <= 10
   const myReady = countCompleteQuestions(myQuestions)
   const theirAuthor: QuizAuthor = myAuthor === 'him' ? 'her' : 'him'
   const theirMeta = getQuizMeta(theirAuthor)
   const theirReady = countCompleteQuestions(bank[theirAuthor])
-  const bothReady =
-    myReady === QUESTIONS_PER_QUIZ && theirReady === QUESTIONS_PER_QUIZ
+  const bothReady = myReady === QUESTIONS_PER_QUIZ && theirReady === QUESTIONS_PER_QUIZ
   const theirPlayable = playableQuestions(bank[theirAuthor])
-  const canPlayTheirs =
-    bothReady &&
-    theirPlayable.length === QUESTIONS_PER_QUIZ &&
-    !myRecord?.finished
+  const canPlayTheirs = bothReady && theirPlayable.length === QUESTIONS_PER_QUIZ && !myRecord?.finished
   const waitingOnThem = myReady === QUESTIONS_PER_QUIZ && theirReady < QUESTIONS_PER_QUIZ
   const waitingOnMe = myReady < QUESTIONS_PER_QUIZ
   const daysLeft = daysUntilNextWeek()
   const currentWeekLabel = weekLabel || formatWeekLabel()
   const combinedSyncError = syncError ?? scoreSyncError
-  const combinedSyncState =
-    syncState === 'error' || scoreSyncState === 'error'
-      ? 'error'
-      : syncState === 'connecting' || scoreSyncState === 'connecting'
-        ? 'connecting'
-        : syncState === 'local' || scoreSyncState === 'local'
-          ? 'local'
-          : 'synced'
+  const combinedSyncState = resolveCombinedSyncState(syncState, scoreSyncState)
 
   return (
     <section className="section" id="quiz">
@@ -422,205 +811,37 @@ export function Quiz({ actor }: QuizProps) {
       <p className="section__lead">{quizSectionLead}</p>
 
       <p className="quiz-status" data-state={combinedSyncState}>
-        {syncLabel(combinedSyncState)}
+        {getQuizStatusMessage(combinedSyncState)}
       </p>
-      {combinedSyncError ? (
-        <p className="quiz-sync-error">{combinedSyncError}</p>
-      ) : null}
+      {combinedSyncError ? <p className="quiz-sync-error">{combinedSyncError}</p> : null}
 
-      <div className="quiz-scoreboard">
-        <p className="quiz-scoreboard__eyebrow">Tallied points</p>
-        <div className="quiz-scoreboard__players">
-          {(['him', 'her'] as const).map((role) => {
-            const isMe = role === actor.role
-            const points = role === 'him' ? tally.himPoints : tally.herPoints
+      <QuizScoreboard
+        role={role}
+        tally={tally}
+        currentWeekLabel={currentWeekLabel}
+        daysLeft={daysLeft}
+        history={history}
+        historyDialogRef={historyDialogRef}
+      />
 
-            return (
-              <div
-                key={role}
-                className={`quiz-scoreboard__player${isMe ? ' is-you' : ''}`}
-              >
-                <p className="quiz-scoreboard__label">
-                  {displayName(role)}
-                  {isMe ? ' · you' : ''}
-                </p>
-                <p className="quiz-scoreboard__points">
-                  {points}
-                </p>
-              </div>
-            )
-          })}
-        </div>
-
-        <div className="quiz-week">
-          <p className="quiz-week__eyebrow">This week’s round</p>
-          <p className="quiz-week__range">{currentWeekLabel}</p>
-          <p className="quiz-week__note">
-            Both questionnaires must be ready before anyone can play. One try each
-            · resets in {daysLeft} day{daysLeft === 1 ? '' : 's'}.
-          </p>
-        </div>
-
-        <div className="quiz-scoreboard__actions">
-          <button
-            type="button"
-            className="btn btn--ghost"
-            onClick={() => historyDialogRef.current?.showModal()}
-          >
-            Score history{history.length > 0 ? ` (${history.length})` : ''}
-          </button>
-        </div>
-      </div>
-
-      <dialog ref={historyDialogRef} className="quiz-history-dialog">
-        <div className="quiz-history-dialog__panel">
-          <div className="quiz-history-dialog__head">
-            <div>
-              <p className="quiz-history-dialog__eyebrow">Scoreboard</p>
-              <h3 className="quiz-history-dialog__title">Score history</h3>
-            </div>
-            <button
-              type="button"
-              className="btn btn--ghost"
-              onClick={() => historyDialogRef.current?.close()}
-            >
-              Close
-            </button>
-          </div>
-
-          {history.length > 0 ? (
-            <ul className="quiz-history__list">
-              {history.map((entry) => (
-                <li key={entry.id} className="quiz-history__item">
-                  <p className="quiz-history__when">
-                    {entry.weekId && entry.weekId !== 'legacy'
-                      ? `Week of ${formatWeekLabel(entry.weekId)}`
-                      : formatHistoryDate(entry.playedAt)}
-                  </p>
-                  <div className="quiz-history__scores">
-                    <span>
-                      {displayName('him')}{' '}
-                      <strong>{formatScoreSnap(entry.him)}</strong>
-                    </span>
-                    <span>
-                      {displayName('her')}{' '}
-                      <strong>{formatScoreSnap(entry.her)}</strong>
-                    </span>
-                  </div>
-                </li>
-              ))}
-            </ul>
-          ) : (
-            <p className="quiz-history-dialog__empty">
-              No rounds yet — finish a quiz to start the record.
-            </p>
-          )}
-        </div>
-      </dialog>
+      <QuizHistoryDialog history={history} historyDialogRef={historyDialogRef} />
 
       {phase === 'hub' && (
-        <>
-          <div className="quiz-mine">
-            <div>
-              <p className="quiz-mine__eyebrow">Your questionnaire</p>
-              <p className="quiz-mine__copy">
-                {myReady === QUESTIONS_PER_QUIZ
-                  ? `Your ${QUESTIONS_PER_QUIZ} questions are set for this week.`
-                  : `${myReady}/${QUESTIONS_PER_QUIZ} ready — write a fresh set for this week.`}
-              </p>
-            </div>
-            <button
-              type="button"
-              className="btn btn--ghost"
-              onClick={() => setPhase('editing')}
-            >
-              {myReady === 0 ? 'Make my quiz' : 'Edit my quiz'}
-            </button>
-          </div>
-
-          <div className="quiz-hub">
-            {myRecord?.finished ? (
-              <article className="quiz-pick quiz-pick--results is-recommended">
-                <p className="quiz-pick__eyebrow">{theirMeta.title} · this week</p>
-                <h3 className="quiz-pick__title">You’re done for this week</h3>
-                <p className="quiz-pick__sub">
-                  Scores stay up until next week — then you’ll both write ten new
-                  questions and play again.
-                </p>
-
-                <div className="quiz-pick__duel">
-                  <div className="quiz-pick__duel-side">
-                    <p className="quiz-pick__duel-label">You</p>
-                    <p className="quiz-pick__duel-score">
-                      {myRecord.last}
-                      <span>/{myRecord.questionTotal}</span>
-                    </p>
-                    <p className="quiz-pick__duel-meta">This week’s score</p>
-                  </div>
-                  <div className="quiz-pick__duel-vs" aria-hidden="true">
-                    vs
-                  </div>
-                  <div className="quiz-pick__duel-side">
-                    <p className="quiz-pick__duel-label">
-                      {displayName(theirAuthor)}
-                    </p>
-                    {board[theirAuthor]?.finished ? (
-                      <>
-                        <p className="quiz-pick__duel-score">
-                          {board[theirAuthor]!.last}
-                          <span>/{board[theirAuthor]!.questionTotal}</span>
-                        </p>
-                        <p className="quiz-pick__duel-meta">This week’s score</p>
-                      </>
-                    ) : (
-                      <>
-                        <p className="quiz-pick__duel-score is-locked">?</p>
-                        <p className="quiz-pick__duel-meta">Waiting on them</p>
-                      </>
-                    )}
-                  </div>
-                </div>
-
-                <p className="quiz-pick__score">
-                  Next round in {daysLeft} day{daysLeft === 1 ? '' : 's'}
-                </p>
-              </article>
-            ) : (
-              <article className="quiz-pick is-recommended">
-                <p className="quiz-pick__eyebrow">{theirMeta.forLabel}</p>
-                <h3 className="quiz-pick__title">{theirMeta.title}</h3>
-                <p className="quiz-pick__sub">{theirMeta.subtitle}</p>
-                <p className="quiz-pick__meta">
-                  You {myReady}/{QUESTIONS_PER_QUIZ} · Them {theirReady}/
-                  {QUESTIONS_PER_QUIZ} · {SECONDS_PER_QUESTION}s each
-                </p>
-                <p className="quiz-pick__score">
-                  {waitingOnMe
-                    ? 'Finish your questionnaire first'
-                    : waitingOnThem
-                      ? 'Waiting for them to finish their questionnaire'
-                      : bothReady
-                        ? 'Both ready — one try this week'
-                        : 'Questionnaires incomplete'}
-                </p>
-                <button
-                  type="button"
-                  className="btn"
-                  onClick={() => startQuiz(theirAuthor)}
-                  disabled={!canPlayTheirs}
-                >
-                  {canPlayTheirs
-                    ? `Start ${theirMeta.authorLabel.toLowerCase()}`
-                    : waitingOnMe
-                      ? 'Lock your quiz first'
-                      : waitingOnThem
-                        ? 'Waiting on them'
-                        : 'Not ready yet'}
-                </button>
-              </article>
-            )}
-          </div>
-        </>
+        <QuizHub
+          myReady={myReady}
+          myRecord={myRecord}
+          theirMeta={theirMeta}
+          theirAuthor={theirAuthor}
+          theirReady={theirReady}
+          board={{ him: board.him, her: board.her }}
+          daysLeft={daysLeft}
+          waitingOnMe={waitingOnMe}
+          waitingOnThem={waitingOnThem}
+          bothReady={bothReady}
+          canPlayTheirs={canPlayTheirs}
+          onEdit={() => setPhase('editing')}
+          onStart={startQuiz}
+        />
       )}
 
       {phase === 'editing' && (
@@ -635,78 +856,26 @@ export function Quiz({ actor }: QuizProps) {
       )}
 
       {phase === 'playing' && pack && current && (
-        <div className="quiz-card">
-          <div className="quiz-playing-head">
-            <p className="quiz-progress">
-              {pack.authorLabel} · Question {index + 1} of {total}
-            </p>
-            <p
-              className={`quiz-timer${timerUrgent ? ' is-urgent' : ''}`}
-              aria-live="polite"
-            >
-              {formatTimer(secondsLeft)}
-            </p>
-          </div>
-          <div
-            className="quiz-timer-bar"
-            aria-hidden="true"
-            style={{
-              ['--timer-pct' as string]: `${(secondsLeft / SECONDS_PER_QUESTION) * 100}%`,
-            }}
-          />
-          <h3 className="quiz-prompt">{current.prompt}</h3>
-          <div className="quiz-options">
-            {current.options.map((option) => (
-              <button
-                key={option}
-                type="button"
-                className={`quiz-option${answers[current.id]?.chosen === option ? ' is-selected' : ''}`}
-                onClick={() => selectOption(option)}
-                disabled={locked}
-              >
-                {option}
-              </button>
-            ))}
-          </div>
-        </div>
+        <QuizPlayingView
+          pack={pack}
+          index={index}
+          total={total}
+          secondsLeft={secondsLeft}
+          current={current}
+          answers={answers}
+          locked={locked}
+          onSelect={selectOption}
+        />
       )}
 
       {phase === 'results' && pack && (
-        <div className="quiz-card quiz-results">
-          <p className="quiz-score">
-            {score}/{total}
-          </p>
-          <p className="quiz-score-label">
-            {scoreLabel(score, total)} · {pack.title}
-          </p>
-          <ul className="compare-list">
-            {pack.questions.map((q) => {
-              const record = answers[q.id]
-              const chosen = record?.chosen
-              const timedOut = record?.timedOut ?? false
-              const match = !timedOut && chosen === q.correctAnswer
-              return (
-                <li
-                  key={q.id}
-                  className={`compare-item${match ? ' is-match' : ' is-miss'}`}
-                >
-                  <p className="compare-item__q">{q.prompt}</p>
-                  <div className="compare-item__answers">
-                    <span>
-                      You: {timedOut ? 'Timed out' : (chosen ?? '—')}
-                    </span>
-                    <span>Answer: {q.correctAnswer}</span>
-                  </div>
-                </li>
-              )
-            })}
-          </ul>
-          <div className="quiz-results__actions">
-            <button type="button" className="btn" onClick={backToHub}>
-              Back to scores
-            </button>
-          </div>
-        </div>
+        <QuizResultsView
+          pack={pack}
+          score={score}
+          total={total}
+          answers={answers}
+          onBack={backToHub}
+        />
       )}
     </section>
   )
@@ -726,15 +895,3 @@ function scoreLabel(score: number, total: number): string {
   return 'Cute chaos — rematch unlocked'
 }
 
-function syncLabel(state: string): string {
-  switch (state) {
-    case 'synced':
-      return 'Live sync on — quizzes and scores stay shared.'
-    case 'connecting':
-      return 'Connecting quiz sync…'
-    case 'error':
-      return 'Sync failed — local quizzes and scores still work on this phone.'
-    default:
-      return 'Local mode — add Firebase env vars to sync across phones.'
-  }
-}

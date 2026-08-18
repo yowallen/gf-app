@@ -2,15 +2,15 @@ import { useEffect, useRef, useState, type CSSProperties } from 'react'
 import { getMilestones } from '../data/milestones'
 import { site } from '../data/site'
 
-type IntroLoadingProps = {
+type IntroLoadingProps = Readonly<{
   /** Shared garden data finished syncing (or timed out). */
   dataReady: boolean
   onComplete: () => void
-}
+}>
 
 export function IntroLoading({ dataReady, onComplete }: IntroLoadingProps) {
   const milestones = getMilestones()
-  const [activeIndex, setActiveIndex] = useState(-1)
+  const [activeIndex, setActiveIndex] = useState(0)
   const [barsDone, setBarsDone] = useState(false)
   const [done, setDone] = useState(false)
   const completedRef = useRef(false)
@@ -19,7 +19,6 @@ export function IntroLoading({ dataReady, onComplete }: IntroLoadingProps) {
     let i = 0
     let cancelled = false
     const stepMs = 700
-    setActiveIndex(0)
 
     const interval = window.setInterval(() => {
       i += 1
@@ -75,9 +74,9 @@ export function IntroLoading({ dataReady, onComplete }: IntroLoadingProps) {
         ))}
       </div>
       {waitingOnData ? (
-        <p className="intro__sync" role="status">
+        <output className="intro__sync">
           Loading meets, quizzes &amp; bucket list…
-        </p>
+        </output>
       ) : null}
     </div>
   )

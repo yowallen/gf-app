@@ -1,5 +1,10 @@
 import { useCallback, useState } from 'react'
-import { gateAuth, usernameForRole, type GateRole } from '../data/auth'
+import {
+  gateAuth,
+  usernameForRole,
+  type CoupleRole,
+  type GateRole,
+} from '../data/auth'
 import {
   clearGateSession,
   readGateSession,
@@ -9,9 +14,10 @@ import {
 } from '../lib/gateSession'
 
 export type { GateActor } from '../lib/gateSession'
-export { usernameForRole } from '../data/auth'
+export { usernameForRole, isCoupleRole } from '../data/auth'
+export type { CoupleRole, GateRole } from '../data/auth'
 
-export type GateStep = 'username' | 'password'
+export type GateStep = 'username' | 'password' | 'guest'
 
 function normalizeUsername(value: string): string {
   return value.trim().toLowerCase()
@@ -30,9 +36,7 @@ export function parseYesDayInput(raw: string): {
   const trimmed = raw.trim()
   if (!trimmed) return null
 
-  const slashOrDash = trimmed.match(
-    /^(\d{1,2})[\/\-.](\d{1,2})[\/\-.](\d{4})$/,
-  )
+  const slashOrDash = /^(\d{1,2})[./-](\d{1,2})[./-](\d{4})$/.exec(trimmed)
   if (slashOrDash) {
     const month = Number(slashOrDash[1])
     const day = Number(slashOrDash[2])
@@ -42,7 +46,7 @@ export function parseYesDayInput(raw: string): {
     }
   }
 
-  const iso = trimmed.match(/^(\d{4})[\/\-.](\d{1,2})[\/\-.](\d{1,2})$/)
+  const iso = /^(\d{4})[./-](\d{1,2})[./-](\d{1,2})$/.exec(trimmed)
   if (iso) {
     const year = Number(iso[1])
     const month = Number(iso[2])
@@ -55,14 +59,14 @@ export function parseYesDayInput(raw: string): {
   return null
 }
 
-export function resolveGateRole(input: string): GateRole | null {
+export function resolveGateRole(input: string): CoupleRole | null {
   const name = normalizeUsername(input)
   if (name === normalizeUsername(gateAuth.her.username)) return 'her'
   if (name === normalizeUsername(gateAuth.him.username)) return 'him'
   return null
 }
 
-export function checkPasswordForRole(role: GateRole, input: string): boolean {
+export function checkPasswordForRole(role: CoupleRole, input: string): boolean {
   if (role === 'her') {
     const parsed = parseYesDayInput(input)
     if (!parsed) return false
@@ -88,10 +92,17 @@ function readInitialState(): { unlocked: boolean; actor: GateActor | null } {
 export function useGateAuth() {
   const [state, setState] = useState(readInitialState)
 
-  const unlock = useCallback((role: GateRole) => {
+  const unlock = useCallback((role: GateRole, usernameOverride?: string) => {
+    const normalizedUsername =
+      role === 'guest'
+        ? (usernameOverride ?? gateAuth.guest.username).trim()
+        : usernameForRole(role)
+
+    if (role === 'guest' && normalizedUsername.length < 4) return
+
     const session = {
       role,
-      username: usernameForRole(role),
+      username: normalizedUsername,
       unlockedAt: Date.now(),
     }
     writeGateSession(session)

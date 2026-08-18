@@ -50,10 +50,27 @@ service cloud.firestore {
     match /quizScoreboards/{boardId} {
       allow read, write: if request.auth != null;
     }
+    match /gardenMessages/{gardenId} {
+      allow read, write: if request.auth != null;
+      match /entries/{entryId} {
+        allow read, write: if request.auth != null;
+      }
+    }
   }
 }
 ```
 
 Meet docs live at `meetLogs/{VITE_MEET_LOG_ID}/entries/{entryId}`.
 
-Use the same deployed URL on both phones (`VITE_BUCKET_LIST_ID`, `VITE_MEET_LOG_ID`, `VITE_QUIZ_BANK_ID`).
+Guest message plants live at `gardenMessages/{VITE_GARDEN_ID}/entries/{entryId}`.
+
+Use the same deployed URL on both phones (`VITE_BUCKET_LIST_ID`, `VITE_MEET_LOG_ID`, `VITE_QUIZ_BANK_ID`, `VITE_GARDEN_ID`).
+
+### Guests
+
+On the login screen, **Enter as guest** opens a visitor area with:
+
+- **Album** — meet photos (read-only)
+- **Garden** — anonymous planted messages (choose a plant, leave a note)
+
+Couple accounts can open **Guest garden** from the main nav to read notes and remove plants. v1 delete uses the same anonymous Auth as writes — tighten rules later if you need couple-only moderation.

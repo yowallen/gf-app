@@ -30,6 +30,7 @@ export function formatMeetDate(iso: string): string {
   if (!isIsoDate(iso)) return iso
   const [y, m, d] = iso.split('-').map(Number)
   return new Date(y, m - 1, d).toLocaleDateString(undefined, {
+    weekday: 'short',
     year: 'numeric',
     month: 'short',
     day: 'numeric',

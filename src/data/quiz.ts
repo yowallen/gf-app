@@ -51,8 +51,18 @@ export function getQuizMeta(author: QuizAuthor): QuizPackMeta {
   return author === 'him' ? quizMetas[0] : quizMetas[1]
 }
 
+function createRandomSuffix(): string {
+  if (typeof globalThis.crypto?.getRandomValues === 'function') {
+    const bytes = new Uint8Array(4)
+    globalThis.crypto.getRandomValues(bytes)
+    return Array.from(bytes, (value) => value.toString(16).padStart(2, '0')).join('')
+  }
+
+  return `${Date.now().toString(36)}${(globalThis.performance?.now() ?? Date.now()).toString(36)}`
+}
+
 export function newQuestionId(author: QuizAuthor): string {
-  return `${author}-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`
+  return `${author}-${Date.now()}-${createRandomSuffix()}`
 }
 
 export function createBlankQuestion(author: QuizAuthor): QuizQuestion {

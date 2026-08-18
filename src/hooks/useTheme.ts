@@ -6,7 +6,7 @@ export type ThemeId = 'green' | 'purple'
 const STORAGE_PREFIX = 'antangoy-theme'
 const LEGACY_STORAGE_KEY = 'antangoy-theme'
 
-/** Him defaults to Bloom; her keeps Meadow. */
+/** Him defaults to Bloom; her and guests keep Meadow. */
 function defaultThemeForRole(role: GateRole): ThemeId {
   return role === 'him' ? 'purple' : 'green'
 }
@@ -24,7 +24,6 @@ function readStoredTheme(role: GateRole): ThemeId {
     const raw = localStorage.getItem(storageKeyForRole(role))
     if (isThemeId(raw)) return raw
 
-    // Shared legacy key only seeds her — him always defaults to Bloom
     if (role === 'her') {
       const legacy = localStorage.getItem(LEGACY_STORAGE_KEY)
       if (isThemeId(legacy)) {
@@ -50,9 +49,11 @@ export function useTheme(role: GateRole) {
   const [themes, setThemes] = useState<Record<GateRole, ThemeId>>(() => {
     const him = readStoredTheme('him')
     const her = readStoredTheme('her')
-    const initial = role === 'him' ? him : her
+    const guest = readStoredTheme('guest')
+    const initial =
+      role === 'him' ? him : role === 'guest' ? guest : her
     if (typeof document !== 'undefined') applyTheme(initial)
-    return { him, her }
+    return { him, her, guest }
   })
 
   const theme = themes[role]

@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import type { GateRole } from '../data/auth'
+import type { CoupleRole } from '../data/auth'
 import { isFirebaseConfigured } from '../lib/firebase'
 import { useBucketList, type SyncState } from './useBucketList'
 import { useMeetLog } from './useMeetLog'
@@ -16,7 +16,7 @@ function isSettled(state: SyncState): boolean {
  * Warms meet log, bucket list, quiz bank, and scores while the intro plays.
  * Ready when every source has left `connecting`, or after a safety timeout.
  */
-export function useBootstrapSync(role: GateRole, username: string) {
+export function useBootstrapSync(role: CoupleRole, username: string) {
   const meet = useMeetLog(username)
   const bucket = useBucketList(username)
   const quizBank = useQuizBank()

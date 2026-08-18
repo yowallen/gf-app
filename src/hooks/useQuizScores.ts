@@ -7,7 +7,7 @@ import {
 } from 'firebase/firestore'
 import { onAuthStateChanged, signInAnonymously } from 'firebase/auth'
 import type { QuizAuthor } from '../data/quiz'
-import type { GateRole } from '../data/auth'
+import type { CoupleRole } from '../data/auth'
 import { getFirebase, isFirebaseConfigured, quizBankId } from '../lib/firebase'
 import { formatWeekLabel, getWeekId } from '../lib/quizWeek'
 
@@ -34,7 +34,7 @@ export type CoupleHistoryEntry = {
 }
 
 export type PlayerQuizRecord = {
-  role: GateRole
+  role: CoupleRole
   username: string
   quizAuthor: QuizAuthor
   weekId: string
@@ -70,8 +70,18 @@ function emptyBoard(weekId: string = getWeekId()): QuizScoreBoard {
   }
 }
 
+function createRandomSuffix(): string {
+  if (typeof globalThis.crypto?.getRandomValues === 'function') {
+    const bytes = new Uint8Array(4)
+    globalThis.crypto.getRandomValues(bytes)
+    return Array.from(bytes, (value) => value.toString(16).padStart(2, '0')).join('')
+  }
+
+  return `${Date.now().toString(36)}${(globalThis.performance?.now() ?? Date.now()).toString(36)}`
+}
+
 function newId(): string {
-  return `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`
+  return `${Date.now()}-${createRandomSuffix()}`
 }
 
 function isAttempt(value: unknown): value is QuizAttemptRecord {
@@ -138,6 +148,8 @@ function parseBoard(raw: unknown): QuizScoreBoard | null {
     ? data.history.filter(isHistoryEntry).map(normalizeHistoryEntry)
     : []
 
+  const sortedHistory = [...history].sort((a, b) => b.playedAt - a.playedAt)
+
   return {
     weekId:
       typeof data.weekId === 'string' && data.weekId.length > 0
@@ -146,7 +158,7 @@ function parseBoard(raw: unknown): QuizScoreBoard | null {
     version: typeof data.version === 'number' ? data.version : 1,
     him: isPlayerRecord(data.him) ? data.him : null,
     her: isPlayerRecord(data.her) ? data.her : null,
-    history: history.sort((a, b) => b.playedAt - a.playedAt),
+    history: sortedHistory,
   }
 }
 
@@ -250,6 +262,21 @@ function mergeBoards(
   }
 }
 
+function buildRemoteBoardPayload(board: QuizScoreBoard) {
+  return {
+    weekId: board.weekId,
+    version: board.version,
+    him: board.him,
+    her: board.her,
+    history: board.history,
+    updatedAt: Date.now(),
+  }
+}
+
+function handleRemoteWriteFailure(err: unknown): void {
+  console.error('Quiz scoreboard heal write failed', err)
+}
+
 function boardHasProgress(board: QuizScoreBoard): boolean {
   return Boolean(
     board.him || board.her || (board.history && board.history.length > 0),
@@ -277,10 +304,28 @@ function saveLocal(board: QuizScoreBoard): void {
   localStorage.setItem(STORAGE_KEY, JSON.stringify(board))
 }
 
+function describeError(err: unknown): string {
+  if (typeof err === 'string') return err
+  if (err instanceof Error) return err.message
+  if (typeof err === 'object' && err !== null) {
+    const message = 'message' in err && typeof err.message === 'string'
+      ? err.message
+      : null
+    if (message) return message
+
+    try {
+      return JSON.stringify(err)
+    } catch {
+      return '[object Object]'
+    }
+  }
+  return String(err)
+}
+
 function formatSyncError(err: unknown): string {
   if (!err || typeof err !== 'object') return 'Unknown sync error'
   const code = 'code' in err ? String(err.code) : ''
-  const message = 'message' in err ? String(err.message) : String(err)
+  const message = describeError(err)
 
   if (
     code === 'auth/configuration-not-found' ||
@@ -299,7 +344,7 @@ function formatSyncError(err: unknown): string {
 
 export function getVisiblePartnerRecord(
   board: QuizScoreBoard,
-  myRole: GateRole,
+  myRole: CoupleRole,
 ): PlayerQuizRecord | null {
   const partner = myRole === 'him' ? board.her : board.him
   if (!partner?.finished) return null
@@ -368,7 +413,7 @@ export function getCombinedTally(board: QuizScoreBoard) {
   }
 }
 
-export function useQuizScores(role: GateRole, username: string) {
+export function useQuizScores(role: CoupleRole, username: string) {
   const [board, setBoard] = useState<QuizScoreBoard>(() => loadLocal())
   const [syncState, setSyncState] = useState<SyncState>(() =>
     isFirebaseConfigured() ? 'connecting' : 'local',
@@ -395,14 +440,10 @@ export function useQuizScores(role: GateRole, username: string) {
     if (!fb || !authReadyRef.current) return
 
     try {
-      await setDoc(doc(fb.db, 'quizScoreboards', quizBankId), {
-        weekId: next.weekId,
-        version: next.version,
-        him: next.him,
-        her: next.her,
-        history: next.history,
-        updatedAt: Date.now(),
-      })
+      await setDoc(
+        doc(fb.db, 'quizScoreboards', quizBankId),
+        buildRemoteBoardPayload(next),
+      )
       setSyncError(null)
       setSyncState('synced')
     } catch (err) {
@@ -594,18 +635,9 @@ export function useQuizScores(role: GateRole, username: string) {
           if (needsPush) {
             void setDoc(
               doc(fb.db, 'quizScoreboards', quizBankId),
-              {
-                weekId: merged.weekId,
-                version: SCOREBOARD_RESET_VERSION,
-                him: merged.him,
-                her: merged.her,
-                history: merged.history,
-                updatedAt: Date.now(),
-              },
+              buildRemoteBoardPayload(merged),
               { merge: true },
-            ).catch((err: unknown) => {
-              console.error('Quiz scoreboard heal write failed', err)
-            })
+            ).catch(handleRemoteWriteFailure)
           }
 
           setSyncState('synced')
