@@ -1,4 +1,5 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState, type ReactNode } from 'react'
+import { ChatCircleTextIcon, EyeIcon, HeartIcon } from '@phosphor-icons/react'
 import type { MeetDay } from '../data/timeline'
 import { formatMeetDate } from '../data/timeline'
 import { useMeetLog } from '../hooks/useMeetLog'
@@ -27,24 +28,66 @@ function AlbumPhoto({ meet }: PhotoCardProps & { meet: MeetDay }) {
   )
 }
 
-export function GuestAlbum({ guestName }: { guestName: string }) {
+/**
+ * Bottom-sheet modal built on the native <dialog> element so focus is
+ * trapped, Esc closes, and focus returns to the trigger for free.
+ */
+function GuestSheetDialog({
+  open,
+  onClose,
+  label,
+  children,
+}: Readonly<{
+  open: boolean
+  onClose: () => void
+  label: string
+  children: ReactNode
+}>) {
+  const dialogRef = useRef<HTMLDialogElement>(null)
+
+  useEffect(() => {
+    const dialog = dialogRef.current
+    if (!dialog) return
+    if (open && !dialog.open) dialog.showModal()
+    if (!open && dialog.open) dialog.close()
+  }, [open])
+
+  return (
+    <dialog
+      ref={dialogRef}
+      className="guest-sheet"
+      aria-label={label}
+      onClose={onClose}
+      onClick={(e) => {
+        if (e.target === dialogRef.current) dialogRef.current?.close()
+      }}
+    >
+      <div className="guest-sheet__panel guest-sheet__panel--album">{children}</div>
+    </dialog>
+  )
+}
+
+export function GuestAlbum({ guestName }: Readonly<{ guestName: string }>) {
   const { items, syncState, syncError } = useMeetLog('guest')
-  const { items: interactions, recordInteraction } = useAlbumInteractions(guestName)
+  const { items: interactions, recordInteraction, deleteInteraction } =
+    useAlbumInteractions(guestName)
   const [selectedPhotoId, setSelectedPhotoId] = useState<string | null>(null)
   const [commentDraft, setCommentDraft] = useState('')
   const [busy, setBusy] = useState(false)
   const [currentDeviceId] = useState(() => getOrCreateDeviceId())
   const [viewersModalPhotoId, setViewersModalPhotoId] = useState<string | null>(null)
+  const [likersModalPhotoId, setLikersModalPhotoId] = useState<string | null>(null)
+  const [poppingLikeId, setPoppingLikeId] = useState<string | null>(null)
 
   // Record view when modal opens (once per device)
   useEffect(() => {
     if (!selectedPhotoId) return
-    
+
     // Check if this device has already viewed this photo
     const hasViewedFromDevice = interactions.some(
       (i) => i.photoId === selectedPhotoId && i.type === 'view' && i.deviceId === currentDeviceId,
     )
-    
+
     if (!hasViewedFromDevice) {
       void recordInteraction(selectedPhotoId, 'view')
     }
@@ -57,7 +100,19 @@ export function GuestAlbum({ guestName }: { guestName: string }) {
   }
 
   const getLikeCount = (photoId: string) => {
-    return getPhotoInteractions(photoId).filter((i) => i.type === 'like').length
+    return getLikers(photoId).length
+  }
+
+  const getLikers = (photoId: string) => {
+    const likes = getPhotoInteractions(photoId).filter((i) => i.type === 'like')
+    // Deduplicate by deviceId - one like per device, not per username
+    const uniqueByDevice = new Map<string, string>()
+    for (const l of likes) {
+      if (!uniqueByDevice.has(l.deviceId)) {
+        uniqueByDevice.set(l.deviceId, l.guestName)
+      }
+    }
+    return Array.from(uniqueByDevice.values())
   }
 
   const getComments = (photoId: string) => {
@@ -78,13 +133,21 @@ export function GuestAlbum({ guestName }: { guestName: string }) {
 
   const hasLiked = (photoId: string) => {
     return getPhotoInteractions(photoId).some(
-      (i) => i.type === 'like' && i.guestName === guestName,
+      (i) => i.type === 'like' && i.deviceId === currentDeviceId,
     )
   }
 
-  const handleLike = async (photoId: string) => {
-    if (hasLiked(photoId)) return
+  const toggleLike = async (photoId: string) => {
+    const existingLike = interactions.find(
+      (i) => i.photoId === photoId && i.type === 'like' && i.deviceId === currentDeviceId,
+    )
+    if (existingLike) {
+      await deleteInteraction(existingLike.id)
+      return
+    }
     await recordInteraction(photoId, 'like')
+    setPoppingLikeId(photoId)
+    window.setTimeout(() => setPoppingLikeId(null), 260)
   }
 
   const handleAddComment = async (photoId: string) => {
@@ -94,6 +157,13 @@ export function GuestAlbum({ guestName }: { guestName: string }) {
     setBusy(false)
     setCommentDraft('')
   }
+
+  const selectedPhoto =
+    selectedPhotoId != null ? photos.find((p) => p.id === selectedPhotoId) : undefined
+  const viewersPhoto =
+    viewersModalPhotoId != null ? photos.find((p) => p.id === viewersModalPhotoId) : undefined
+  const likersPhoto =
+    likersModalPhotoId != null ? photos.find((p) => p.id === likersModalPhotoId) : undefined
 
   return (
     <section className="guest-panel" id="guest-album">
@@ -140,22 +210,43 @@ export function GuestAlbum({ guestName }: { guestName: string }) {
                     <time dateTime={meet.date}>{formatMeetDate(meet.date)}</time>
                   </div>
                   <div className="guest-album__interactions">
+                    {/* Heart toggles; the count opens the likers list */}
                     <button
                       type="button"
-                      className={`guest-album__like-btn${liked ? ' is-liked' : ''}`}
-                      onClick={() => handleLike(meet.id)}
-                      disabled={liked}
-                      title={liked ? 'You already liked this' : 'Like'}
+                      className={`guest-album__like-btn${liked ? ' is-liked' : ''}${
+                        poppingLikeId === meet.id ? ' is-popping' : ''
+                      }`}
+                      onClick={() => void toggleLike(meet.id)}
+                      aria-pressed={liked}
+                      title={liked ? 'Unlike' : 'Like'}
+                      aria-label={liked ? 'Unlike this photo' : 'Like this photo'}
                     >
-                      ♡ {likeCount}
+                      <HeartIcon
+                        size={16}
+                        weight={liked ? 'fill' : 'regular'}
+                        aria-hidden
+                      />
                     </button>
+                    {likeCount > 0 ? (
+                      <button
+                        type="button"
+                        className="guest-album__count-btn"
+                        onClick={() => setLikersModalPhotoId(meet.id)}
+                        title="See who liked this"
+                        aria-label={`${likeCount} ${likeCount === 1 ? 'like' : 'likes'} — see who liked this`}
+                      >
+                        {likeCount}
+                      </button>
+                    ) : null}
                     <button
                       type="button"
                       className="guest-album__comment-btn"
                       onClick={() => setSelectedPhotoId(meet.id)}
                       title="View comments"
+                      aria-label={`${comments.length} ${comments.length === 1 ? 'comment' : 'comments'} — view`}
                     >
-                      💬 {comments.length}
+                      <ChatCircleTextIcon size={16} aria-hidden />
+                      {comments.length}
                     </button>
                     {viewers.length > 0 ? (
                       <button
@@ -163,8 +254,10 @@ export function GuestAlbum({ guestName }: { guestName: string }) {
                         className="guest-album__viewers-btn"
                         onClick={() => setViewersModalPhotoId(meet.id)}
                         title="See who viewed"
+                        aria-label={`${viewers.length} ${viewers.length === 1 ? 'guest has' : 'guests have'} viewed this`}
                       >
-                        👁 {viewers.length}
+                        <EyeIcon size={16} aria-hidden />
+                        {viewers.length}
                       </button>
                     ) : null}
                   </div>
@@ -173,43 +266,42 @@ export function GuestAlbum({ guestName }: { guestName: string }) {
             })}
           </ul>
 
-          {selectedPhotoId ? (
-            <div
-              className="guest-sheet"
-              role="dialog"
-              aria-modal="true"
-              onClick={() => setSelectedPhotoId(null)}
-            >
-              <div
-                className="guest-sheet__panel guest-sheet__panel--album"
-                onClick={(e) => e.stopPropagation()}
-              >
-                {(() => {
-                  const photo = photos.find((p) => p.id === selectedPhotoId)
-                  if (!photo) return null
+          <GuestSheetDialog
+            open={selectedPhoto !== undefined}
+            onClose={() => setSelectedPhotoId(null)}
+            label={
+              selectedPhoto
+                ? `${selectedPhoto.title} — guests and comments`
+                : 'Photo details'
+            }
+          >
+            {selectedPhoto ? (
+              <>
+                <h3 className="guest-sheet__title">{selectedPhoto.title}</h3>
+                <div className="guest-sheet__date">
+                  {formatMeetDate(selectedPhoto.date)}
+                </div>
 
-                  const photoComments = getComments(selectedPhotoId)
-                  const photoViewers = getViewers(selectedPhotoId)
+                <p className="guest-sheet__privacy-note">
+                  Opening a photo adds your guest name to its viewer list.
+                </p>
 
-                  return (
-                    <>
-                      <h3 className="guest-sheet__title">{photo.title}</h3>
-                      <div className="guest-sheet__date">
-                        {formatMeetDate(photo.date)}
-                      </div>
+                {getViewers(selectedPhoto.id).length > 0 ? (
+                  <div className="guest-album__viewers-list">
+                    <p className="guest-album__section-label">Guests who viewed:</p>
+                    <ul className="guest-album__viewer-names">
+                      {getViewers(selectedPhoto.id).map(([name]) => (
+                        <li key={name}>{name}</li>
+                      ))}
+                    </ul>
+                  </div>
+                ) : null}
 
-                      {photoViewers.length > 0 ? (
-                        <div className="guest-album__viewers-list">
-                          <p className="guest-album__section-label">Guests who viewed:</p>
-                          <ul className="guest-album__viewer-names">
-                            {photoViewers.map(([name]) => (
-                              <li key={name}>{name}</li>
-                            ))}
-                          </ul>
-                        </div>
-                      ) : null}
-
-                      <div className="guest-album__comments-section">
+                <div className="guest-album__comments-section">
+                  {(() => {
+                    const photoComments = getComments(selectedPhoto.id)
+                    return (
+                      <>
                         <p className="guest-album__section-label">
                           Comments ({photoComments.length})
                         </p>
@@ -231,13 +323,14 @@ export function GuestAlbum({ guestName }: { guestName: string }) {
                           className="guest-album__comment-form"
                           onSubmit={(e) => {
                             e.preventDefault()
-                            void handleAddComment(selectedPhotoId)
+                            void handleAddComment(selectedPhoto.id)
                           }}
                         >
                           <input
                             type="text"
                             className="guest-album__comment-input"
                             placeholder="Add a comment…"
+                            aria-label="Add a comment"
                             value={commentDraft}
                             onChange={(e) => setCommentDraft(e.target.value)}
                             maxLength={200}
@@ -250,47 +343,41 @@ export function GuestAlbum({ guestName }: { guestName: string }) {
                             {busy ? 'Posting…' : 'Post'}
                           </button>
                         </form>
-                      </div>
+                      </>
+                    )
+                  })()}
+                </div>
 
-                      <button
-                        type="button"
-                        className="btn btn--ghost guest-album__close-btn"
-                        onClick={() => setSelectedPhotoId(null)}
-                      >
-                        Close
-                      </button>
-                    </>
-                  )
-                })()}
-              </div>
-            </div>
-          ) : null}
+                <button
+                  type="button"
+                  className="btn btn--ghost guest-album__close-btn"
+                  onClick={() => setSelectedPhotoId(null)}
+                >
+                  Close
+                </button>
+              </>
+            ) : null}
+          </GuestSheetDialog>
 
-          {viewersModalPhotoId ? (
-            <div
-              className="guest-sheet"
-              role="dialog"
-              aria-modal="true"
-              onClick={() => setViewersModalPhotoId(null)}
-            >
-              <div
-                className="guest-sheet__panel guest-sheet__panel--album"
-                onClick={(e) => e.stopPropagation()}
-              >
-                {(() => {
-                  const photo = photos.find((p) => p.id === viewersModalPhotoId)
-                  if (!photo) return null
+          <GuestSheetDialog
+            open={viewersPhoto !== undefined}
+            onClose={() => setViewersModalPhotoId(null)}
+            label={
+              viewersPhoto ? `Guests who viewed ${viewersPhoto.title}` : 'Viewers'
+            }
+          >
+            {viewersPhoto ? (
+              <>
+                <h3 className="guest-sheet__title">{viewersPhoto.title}</h3>
+                <div className="guest-sheet__date">
+                  {formatMeetDate(viewersPhoto.date)}
+                </div>
 
-                  const photoViewers = getViewers(viewersModalPhotoId)
-
-                  return (
-                    <>
-                      <h3 className="guest-sheet__title">{photo.title}</h3>
-                      <div className="guest-sheet__date">
-                        {formatMeetDate(photo.date)}
-                      </div>
-
-                      <div className="guest-album__viewers-list">
+                <div className="guest-album__viewers-list">
+                  {(() => {
+                    const photoViewers = getViewers(viewersPhoto.id)
+                    return (
+                      <>
                         <p className="guest-album__section-label">
                           Guests who viewed ({photoViewers.length}):
                         </p>
@@ -303,24 +390,70 @@ export function GuestAlbum({ guestName }: { guestName: string }) {
                         ) : (
                           <p className="guest-album__no-comments">No views yet</p>
                         )}
-                      </div>
+                      </>
+                    )
+                  })()}
+                </div>
 
-                      <button
-                        type="button"
-                        className="btn btn--ghost guest-album__close-btn"
-                        onClick={() => setViewersModalPhotoId(null)}
-                      >
-                        Close
-                      </button>
-                    </>
-                  )
-                })()}
-              </div>
-            </div>
-          ) : null}
+                <button
+                  type="button"
+                  className="btn btn--ghost guest-album__close-btn"
+                  onClick={() => setViewersModalPhotoId(null)}
+                >
+                  Close
+                </button>
+              </>
+            ) : null}
+          </GuestSheetDialog>
+
+          <GuestSheetDialog
+            open={likersPhoto !== undefined}
+            onClose={() => setLikersModalPhotoId(null)}
+            label={
+              likersPhoto ? `Guests who liked ${likersPhoto.title}` : 'Likes'
+            }
+          >
+            {likersPhoto ? (
+              <>
+                <h3 className="guest-sheet__title">{likersPhoto.title}</h3>
+                <div className="guest-sheet__date">
+                  {formatMeetDate(likersPhoto.date)}
+                </div>
+
+                <div className="guest-album__viewers-list">
+                  {(() => {
+                    const photoLikers = getLikers(likersPhoto.id)
+                    return (
+                      <>
+                        <p className="guest-album__section-label">
+                          Guests who liked ({photoLikers.length}):
+                        </p>
+                        {photoLikers.length > 0 ? (
+                          <ul className="guest-album__viewer-names">
+                            {photoLikers.map((name) => (
+                              <li key={name}>{name}</li>
+                            ))}
+                          </ul>
+                        ) : (
+                          <p className="guest-album__no-comments">No likes yet</p>
+                        )}
+                      </>
+                    )
+                  })()}
+                </div>
+
+                <button
+                  type="button"
+                  className="btn btn--ghost guest-album__close-btn"
+                  onClick={() => setLikersModalPhotoId(null)}
+                >
+                  Close
+                </button>
+              </>
+            ) : null}
+          </GuestSheetDialog>
         </>
       )}
     </section>
   )
 }
-

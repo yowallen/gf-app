@@ -14,6 +14,7 @@ function MeetPhoto({ meet }: { meet: MeetDay }) {
       className="stem-log__photo"
       src={meet.image}
       alt={meet.title}
+      loading="lazy"
       onError={() => setFailed(true)}
     />
   )

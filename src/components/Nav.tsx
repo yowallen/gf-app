@@ -1,7 +1,7 @@
+import { SignOutIcon } from '@phosphor-icons/react'
 import { site } from '../data/site'
 import { type GateActor } from '../hooks/useGateAuth'
 import { type ThemeId } from '../hooks/useTheme'
-import { LogOut } from 'lucide-react'
 
 const links = [
   { href: '#timeline', label: 'Meets' },
@@ -66,7 +66,7 @@ export function Nav({
           onClick={onSignOut}
           aria-label={`Sign out ${actor.username}`}
         >
-          <LogOut size={16} />
+          <SignOutIcon size={16} aria-hidden />
         </button>
       </div>
     </nav>

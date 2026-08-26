@@ -38,6 +38,7 @@ export function GuestApp({
               type="button"
               className={`theme-toggle__btn${theme === 'green' ? ' is-active' : ''}`}
               aria-pressed={theme === 'green'}
+              aria-label="Meadow theme"
               onClick={() => setTheme('green')}
             >
               <span className="theme-toggle__swatch theme-toggle__swatch--green" />
@@ -47,6 +48,7 @@ export function GuestApp({
               type="button"
               className={`theme-toggle__btn${theme === 'purple' ? ' is-active' : ''}`}
               aria-pressed={theme === 'purple'}
+              aria-label="Bloom theme"
               onClick={() => setTheme('purple')}
             >
               <span className="theme-toggle__swatch theme-toggle__swatch--purple" />

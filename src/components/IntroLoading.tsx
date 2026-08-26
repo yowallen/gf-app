@@ -14,29 +14,36 @@ export function IntroLoading({ dataReady, onComplete }: IntroLoadingProps) {
   const [barsDone, setBarsDone] = useState(false)
   const [done, setDone] = useState(false)
   const completedRef = useRef(false)
+  const indexRef = useRef(0)
 
   useEffect(() => {
-    let i = 0
-    let cancelled = false
-    const stepMs = 700
+    if (barsDone) return
 
-    const interval = window.setInterval(() => {
-      i += 1
-      if (i < milestones.length) {
-        setActiveIndex(i)
+    let cancelled = false
+    let timer = 0
+    // Once the shared garden data is in, fast-forward through remaining bars.
+    const stepMs = dataReady ? 120 : 700
+
+    const tick = () => {
+      const nextIndex = indexRef.current + 1
+      if (nextIndex < milestones.length) {
+        indexRef.current = nextIndex
+        setActiveIndex(nextIndex)
+        timer = window.setTimeout(tick, stepMs)
       } else {
-        window.clearInterval(interval)
-        window.setTimeout(() => {
+        timer = window.setTimeout(() => {
           if (!cancelled) setBarsDone(true)
-        }, 500)
+        }, dataReady ? 150 : 500)
       }
-    }, stepMs)
+    }
+
+    timer = window.setTimeout(tick, stepMs)
 
     return () => {
       cancelled = true
-      window.clearInterval(interval)
+      window.clearTimeout(timer)
     }
-  }, [milestones.length])
+  }, [barsDone, dataReady, milestones.length])
 
   useEffect(() => {
     if (!barsDone || !dataReady || completedRef.current) return
@@ -61,7 +68,7 @@ export function IntroLoading({ dataReady, onComplete }: IntroLoadingProps) {
           <div
             key={m.id}
             className={`intro-bar${index <= activeIndex ? ' is-active' : ''}`}
-            style={{ '--target': `${m.progress}%` } as CSSProperties}
+            style={{ '--target': m.progress } as CSSProperties}
           >
             <div className="intro-bar__label">
               <span>{m.label}</span>
@@ -73,11 +80,6 @@ export function IntroLoading({ dataReady, onComplete }: IntroLoadingProps) {
           </div>
         ))}
       </div>
-      {waitingOnData ? (
-        <output className="intro__sync">
-          Loading meets, quizzes &amp; bucket list…
-        </output>
-      ) : null}
     </div>
   )
 }

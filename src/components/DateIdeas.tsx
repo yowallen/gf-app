@@ -1,4 +1,5 @@
 import { useMemo, useState } from 'react'
+import { BookmarkSimpleIcon, CheckCircleIcon, MapPinIcon } from '@phosphor-icons/react'
 import {
   budgets,
   dateIdeas,
@@ -15,7 +16,6 @@ import {
 } from '../data/dateIdeas'
 import { useBucketList } from '../hooks/useBucketList'
 import { useDateIdeaMemory } from '../hooks/useDateIdeaMemory'
-import { BookmarkCheck, BookmarkPlus, CheckCircle2, MapPin } from 'lucide-react'
 
 type DateIdeasProps = Readonly<{
   addedBy: string
@@ -164,23 +164,38 @@ function IdeaResult({
         </button>
       </div>
       <div className="idea-result__CTB">
-        <button type="button" className="idea-result__action" onClick={onToggleLiked}>
-          {isLiked ? (
-            <BookmarkCheck size={iconSize} />
-          ) : (
-            <BookmarkPlus size={iconSize} />
-          )}
+        <button
+          type="button"
+          className="idea-result__action"
+          onClick={onToggleLiked}
+          aria-label={isLiked ? 'Remove from saved ideas' : 'Save this idea'}
+        >
+          <BookmarkSimpleIcon
+            size={iconSize}
+            weight={isLiked ? 'fill' : 'regular'}
+            aria-hidden
+          />
         </button>
-        <button type="button" className="idea-result__action" onClick={onToggleTried}>
-          <CheckCircle2 size={iconSize} />
+        <button
+          type="button"
+          className="idea-result__action"
+          onClick={onToggleTried}
+          aria-label={isTried ? 'Mark as not tried' : 'Mark as tried'}
+        >
+          <CheckCircleIcon
+            size={iconSize}
+            weight={isTried ? 'fill' : 'regular'}
+            aria-hidden
+          />
         </button>
         <a
           className="idea-result__action"
           href={mapsSearchUrl(idea.locationHint)}
           target="_blank"
           rel="noreferrer"
+          aria-label={`See location on Google Maps: ${idea.locationHint}`}
         >
-          <MapPin size={iconSize} />
+          <MapPinIcon size={iconSize} aria-hidden />
         </a>
       </div>
       {bucketNote ? <p className="idea-result__note">{bucketNote}</p> : null}

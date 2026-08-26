@@ -27,11 +27,21 @@ export function BucketList({ addedBy }: BucketListProps) {
     useBucketList(addedBy)
   const [text, setText] = useState('')
   const [category, setCategory] = useState<BucketCategory>('date')
+  const [exitingIds, setExitingIds] = useState<string[]>([])
 
   function onSubmit(e: FormEvent) {
     e.preventDefault()
     addItem(text, category)
     setText('')
+  }
+
+  // Keep the row mounted briefly so it can collapse and fade before removal.
+  function handleRemove(id: string) {
+    setExitingIds((ids) => (ids.includes(id) ? ids : [...ids, id]))
+    window.setTimeout(() => {
+      deleteItem(id)
+      setExitingIds((ids) => ids.filter((x) => x !== id))
+    }, 220)
   }
 
   return (
@@ -73,32 +83,38 @@ export function BucketList({ addedBy }: BucketListProps) {
         <p className="bucket-empty">Nothing here yet — add your first dream.</p>
       ) : (
         <ul className="bucket-list">
-          {items.map((item) => (
-            <li
-              key={item.id}
-              className={`bucket-item${item.done ? ' is-done' : ''}`}
-            >
-              <input
-                type="checkbox"
-                checked={item.done}
-                onChange={() => toggleItem(item.id)}
-                aria-label={`Mark ${item.text} as ${item.done ? 'not done' : 'done'}`}
-              />
-              <div className="bucket-item__meta">
-                <p className="bucket-item__text">{item.text}</p>
-                <p className="bucket-item__by">by {item.addedBy}</p>
-              </div>
-              <span className="bucket-item__cat">{item.category}</span>
-              <button
-                type="button"
-                className="bucket-item__delete"
-                onClick={() => deleteItem(item.id)}
-                aria-label={`Delete ${item.text}`}
+          {items.map((item) => {
+            const isExiting = exitingIds.includes(item.id)
+            return (
+              <li
+                key={item.id}
+                className={`bucket-slot${isExiting ? ' is-exiting' : ''}`}
               >
-                Remove
-              </button>
-            </li>
-          ))}
+                <div className={`bucket-item${item.done ? ' is-done' : ''}`}>
+                  <input
+                    type="checkbox"
+                    checked={item.done}
+                    onChange={() => toggleItem(item.id)}
+                    aria-label={`Mark ${item.text} as ${item.done ? 'not done' : 'done'}`}
+                  />
+                  <div className="bucket-item__meta">
+                    <p className="bucket-item__text">{item.text}</p>
+                    <p className="bucket-item__by">by {item.addedBy}</p>
+                  </div>
+                  <span className="bucket-item__cat">{item.category}</span>
+                  <button
+                    type="button"
+                    className="bucket-item__delete"
+                    onClick={() => handleRemove(item.id)}
+                    disabled={isExiting}
+                    aria-label={`Delete ${item.text}`}
+                  >
+                    Remove
+                  </button>
+                </div>
+              </li>
+            )
+          })}
         </ul>
       )}
     </section>

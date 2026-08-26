@@ -43,7 +43,7 @@ export function Milestones() {
           <div
             key={m.id}
             className="milestone-row"
-            style={{ '--target': `${m.progress}%` } as CSSProperties}
+            style={{ '--target': m.progress } as CSSProperties}
           >
             <div className="milestone-row__head">
               <span className="milestone-row__label">{m.label}</span>

@@ -1,4 +1,5 @@
 import { useState, type CSSProperties, type FormEvent, type ReactNode } from 'react'
+import { PencilSimpleIcon } from '@phosphor-icons/react'
 import { formatMeetDate, type MeetDay } from '../data/timeline'
 import type { MeetDayInput } from '../hooks/useMeetLog'
 
@@ -351,7 +352,7 @@ export function GrowingFlower({
                             aria-label={`Edit ${meet.title}`}
                             onClick={() => setEditingId(meet.id)}
                           >
-                            <span aria-hidden="true">✎</span>
+                            <PencilSimpleIcon size={13} aria-hidden />
                           </button>
                         </p>
                         <h3 className="stem-log__title">{meet.title}</h3>

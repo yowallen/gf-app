@@ -94,12 +94,17 @@ export function LoginGate({ onUnlock }: LoginGateProps) {
                 autoFocus
                 placeholder={gateAuth.usernameHint}
                 value={username}
+                aria-describedby={error ? 'gate-username-error' : undefined}
                 onChange={(e) => {
                   setUsername(e.target.value)
                   if (error) setError('')
                 }}
               />
-              {error ? <p className="gate__error">{error}</p> : null}
+              {error ? (
+                <p className="gate__error" id="gate-username-error" role="alert">
+                  {error}
+                </p>
+              ) : null}
               <button type="submit" className="btn btn--gold gate__submit">
                 Continue
               </button>
@@ -132,13 +137,22 @@ export function LoginGate({ onUnlock }: LoginGateProps) {
               autoFocus
               placeholder="At least 4 characters"
               value={guestUsername}
+              aria-describedby={
+                error ? 'gate-guest-username-error' : 'gate-guest-hint'
+              }
               onChange={(e) => {
                 setGuestUsername(e.target.value)
                 if (error) setError('')
               }}
             />
-            <p className="gate__hint">Choose a guest name of at least 4 characters.</p>
-            {error ? <p className="gate__error">{error}</p> : null}
+            <p className="gate__hint" id="gate-guest-hint">
+              Choose a guest name of at least 4 characters.
+            </p>
+            {error ? (
+              <p className="gate__error" id="gate-guest-username-error" role="alert">
+                {error}
+              </p>
+            ) : null}
             <div className="gate__actions">
               <button
                 type="button"

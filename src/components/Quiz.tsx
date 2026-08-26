@@ -428,20 +428,26 @@ function QuizPlayingView({
   const timerUrgent = secondsLeft <= 10
 
   return (
-    <div className="quiz-card">
+    <div className="quiz-card" key={current.id}>
       <div className="quiz-playing-head">
         <p className="quiz-progress">
           {pack.authorLabel} · Question {index + 1} of {total}
         </p>
-        <p className={`quiz-timer${timerUrgent ? ' is-urgent' : ''}`} aria-live="polite">
-          {formatTimer(secondsLeft)}
-        </p>
+        <div>
+          <p className={`quiz-timer${timerUrgent ? ' is-urgent' : ''}`}>
+            {formatTimer(secondsLeft)}
+          </p>
+          {/* Announce once at the threshold instead of every ticking second */}
+          <output className="sr-only">
+            {secondsLeft === 10 ? '10 seconds left' : ''}
+          </output>
+        </div>
       </div>
       <div
         className="quiz-timer-bar"
         aria-hidden="true"
         style={{
-          ['--timer-pct' as string]: `${(secondsLeft / SECONDS_PER_QUESTION) * 100}%`,
+          ['--timer-pct' as string]: (secondsLeft / SECONDS_PER_QUESTION) * 100,
         }}
       />
       <h3 className="quiz-prompt">{current.prompt}</h3>
