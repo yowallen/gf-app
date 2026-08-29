@@ -1,12 +1,12 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import {
   collection,
-  deleteDoc,
   doc,
   onSnapshot,
   orderBy,
   query,
   setDoc,
+  writeBatch,
   type Unsubscribe,
 } from 'firebase/firestore'
 import { onAuthStateChanged, signInAnonymously } from 'firebase/auth'
@@ -30,6 +30,7 @@ export type GardenMessage = {
 }
 
 const STORAGE_KEY = `antangoy-garden-${gardenId}`
+const BACKUP_STORAGE_KEY = `${STORAGE_KEY}-backups`
 
 function newId(): string {
   return `${Date.now()}-${Math.random().toString(36).slice(2, 9)}`
@@ -66,6 +67,22 @@ function saveLocal(items: GardenMessage[]): void {
   localStorage.setItem(STORAGE_KEY, JSON.stringify(items))
 }
 
+function loadBackups(): GardenMessage[] {
+  try {
+    const raw = localStorage.getItem(BACKUP_STORAGE_KEY)
+    if (!raw) return []
+    const parsed: unknown = JSON.parse(raw)
+    if (!Array.isArray(parsed)) return []
+    return parsed.filter(isGardenMessage)
+  } catch {
+    return []
+  }
+}
+
+function saveBackups(items: GardenMessage[]): void {
+  localStorage.setItem(BACKUP_STORAGE_KEY, JSON.stringify(items))
+}
+
 function formatSyncError(err: unknown): string {
   if (!err || typeof err !== 'object') return 'Unknown sync error'
   const code = 'code' in err ? String(err.code) : ''
@@ -98,6 +115,12 @@ function messagesCollection(
   db: NonNullable<ReturnType<typeof getFirebase>>['db'],
 ) {
   return collection(db, 'gardenMessages', gardenId, 'entries')
+}
+
+function backupsCollection(
+  db: NonNullable<ReturnType<typeof getFirebase>>['db'],
+) {
+  return collection(db, 'gardenMessages', gardenId, 'backups')
 }
 
 export function useGardenMessages(guestUsername: string = 'guest') {
@@ -217,10 +240,16 @@ export function useGardenMessages(guestUsername: string = 'guest') {
   )
 
   const deleteMessage = useCallback(async (id: string) => {
+    const removed = itemsRef.current.find((item) => item.id === id)
+    if (!removed) return
+
     const next = itemsRef.current.filter((item) => item.id !== id)
     setItems(next)
     itemsRef.current = next
     saveLocal(next)
+    saveBackups(
+      [...loadBackups().filter((item) => item.id !== id), removed].slice(-50),
+    )
 
     const fb = getFirebase()
     if (!fb) {
@@ -233,7 +262,14 @@ export function useGardenMessages(guestUsername: string = 'guest') {
     }
 
     try {
-      await deleteDoc(doc(messagesCollection(fb.db), id))
+      const batch = writeBatch(fb.db)
+      const { id: backupId, ...fields } = removed
+      batch.set(doc(backupsCollection(fb.db), backupId), {
+        ...fields,
+        deletedAt: Date.now(),
+      })
+      batch.delete(doc(messagesCollection(fb.db), id))
+      await batch.commit()
       setSyncError(null)
       setSyncState('synced')
     } catch (err) {
@@ -243,11 +279,43 @@ export function useGardenMessages(guestUsername: string = 'guest') {
     }
   }, [])
 
+  const restoreMessage = useCallback(async (message: GardenMessage) => {
+    const next = [...itemsRef.current, message].sort((a, b) => a.slot - b.slot)
+    setItems(next)
+    itemsRef.current = next
+    saveLocal(next)
+
+    const fb = getFirebase()
+    if (!fb) {
+      setSyncState('local')
+      return true
+    }
+    if (!authReadyRef.current) {
+      setSyncState('connecting')
+      return true
+    }
+
+    try {
+      const { id, ...fields } = message
+      await setDoc(doc(messagesCollection(fb.db), id), fields)
+      saveBackups(loadBackups().filter((item) => item.id !== id))
+      setSyncError(null)
+      setSyncState('synced')
+      return true
+    } catch (err) {
+      console.error('Garden restore failed', err)
+      setSyncError(formatSyncError(err))
+      setSyncState('error')
+      return false
+    }
+  }, [])
+
   return {
     items,
     syncState,
     syncError,
     plantMessage,
     deleteMessage,
+    restoreMessage,
   }
 }

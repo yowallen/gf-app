@@ -55,6 +55,9 @@ service cloud.firestore {
       match /entries/{entryId} {
         allow read, write: if request.auth != null;
       }
+      match /backups/{entryId} {
+        allow read, write: if request.auth != null;
+      }
     }
   }
 }

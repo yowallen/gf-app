@@ -3087,6 +3087,24 @@ a {
   color: var(--primary);
 }
 
+.guest-panel__undo {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.65rem;
+}
+
+.guest-panel__undo-btn {
+  padding: 0.2rem 0.45rem;
+  border: 1px solid currentColor;
+  border-radius: 6px;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  font-weight: 700;
+  cursor: pointer;
+}
+
 .guest-panel--zen .guest-panel__lead--zen {
   margin-bottom: 0.85rem;
   text-align: center;
@@ -3561,8 +3579,10 @@ a {
   border-color: rgba(var(--primary-rgb), 0.2);
 }
 
-/* Native <dialog> — rendered in the top layer by showModal() */
 .guest-sheet {
+  position: fixed;
+  inset: 0;
+  z-index: 50;
   width: 100%;
   max-width: 100%;
   height: 100dvh;
@@ -3572,34 +3592,9 @@ a {
   justify-content: center;
   padding: 1rem;
   border: 0;
-  background: transparent;
+  background: rgba(var(--primary-deep-rgb), 0.45);
   color: var(--ink);
-  /* Stay rendered (and in the top layer) until the exit transition ends */
-  transition:
-    overlay var(--dur-panel) var(--ease) allow-discrete,
-    display var(--dur-panel) allow-discrete;
-}
-
-.guest-sheet::backdrop {
-  background-color: rgba(var(--primary-deep-rgb), 0);
-  backdrop-filter: blur(0px);
-  transition:
-    background-color var(--dur-panel) ease,
-    backdrop-filter var(--dur-panel) ease,
-    overlay var(--dur-panel) allow-discrete,
-    display var(--dur-panel) allow-discrete;
-}
-
-.guest-sheet[open]::backdrop {
-  background-color: rgba(var(--primary-deep-rgb), 0.45);
   backdrop-filter: blur(2px);
-}
-
-@starting-style {
-  .guest-sheet[open]::backdrop {
-    background-color: rgba(var(--primary-deep-rgb), 0);
-    backdrop-filter: blur(0px);
-  }
 }
 
 @media (min-width: 640px) {
@@ -3617,24 +3612,8 @@ a {
   border-radius: 18px 18px 14px 14px;
   padding: 1.35rem 1.25rem 1.25rem;
   box-shadow: var(--shadow-soft);
-  /* Closed state — the panel exits back down the same path it entered */
-  opacity: 0;
-  transform: translateY(28px);
-  transition:
-    opacity var(--dur-fast) ease,
-    transform var(--dur-panel) var(--ease);
-}
-
-.guest-sheet[open] .guest-sheet__panel {
   opacity: 1;
   transform: none;
-}
-
-@starting-style {
-  .guest-sheet[open] .guest-sheet__panel {
-    opacity: 0;
-    transform: translateY(28px);
-  }
 }
 
 .guest-sheet__panel > * {

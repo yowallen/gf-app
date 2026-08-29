@@ -1,4 +1,10 @@
-import { useMemo, useState, type CSSProperties, type FormEvent } from 'react'
+import {
+  useMemo,
+  useRef,
+  useState,
+  type CSSProperties,
+  type FormEvent,
+} from 'react'
 import {
   emptyPotImage,
   GARDEN_MAT_SLOTS,
@@ -73,9 +79,18 @@ function ZenSlot({
 }
 
 export function GuestGarden({ canDelete, canPlant, guestUsername }: GuestGardenProps) {
-  const { items, syncState, syncError, plantMessage, deleteMessage } =
+  const {
+    items,
+    syncState,
+    syncError,
+    plantMessage,
+    deleteMessage,
+    restoreMessage,
+  } =
     useGardenMessages(guestUsername)
   const [selected, setSelected] = useState<GardenMessage | null>(null)
+  const [undoMessage, setUndoMessage] = useState<GardenMessage | null>(null)
+  const undoTimerRef = useRef<number | null>(null)
   const [plantStep, setPlantStep] = useState<PlantStep>(null)
   const [plantType, setPlantType] = useState<PlantType>('daisy')
   const [draft, setDraft] = useState('')
@@ -128,6 +143,24 @@ export function GuestGarden({ canDelete, canPlant, guestUsername }: GuestGardenP
       ) : null}
       {syncError ? <p className="guest-panel__error">{syncError}</p> : null}
       {note ? <p className="guest-panel__note">{note}</p> : null}
+      {undoMessage ? (
+        <p className="guest-panel__note guest-panel__undo">
+          Plant removed.
+          <button
+            type="button"
+            className="guest-panel__undo-btn"
+            onClick={() => {
+              if (undoTimerRef.current !== null) {
+                window.clearTimeout(undoTimerRef.current)
+              }
+              void restoreMessage(undoMessage)
+              setUndoMessage(null)
+            }}
+          >
+            Undo
+          </button>
+        </p>
+      ) : null}
 
       <div className="zen-scene" aria-label="Planted messages">
         <img
@@ -202,7 +235,16 @@ export function GuestGarden({ canDelete, canPlant, guestUsername }: GuestGardenP
                   type="button"
                   className="btn btn--ghost"
                   onClick={() => {
-                    void deleteMessage(selected.id)
+                    const removed = selected
+                    void deleteMessage(removed.id)
+                    setUndoMessage(removed)
+                    if (undoTimerRef.current !== null) {
+                      window.clearTimeout(undoTimerRef.current)
+                    }
+                    undoTimerRef.current = window.setTimeout(
+                      () => setUndoMessage(null),
+                      5000,
+                    )
                     setSelected(null)
                   }}
                 >
