@@ -1,8 +1,10 @@
 import { site } from '../data/site'
+import { useScrollReveal } from '../hooks/useScrollReveal'
 
 export function Hero() {
+  const heroRef = useScrollReveal()
   return (
-    <header className="hero" id="top">
+    <header className="hero reveal" id="top" ref={heroRef}>
       <div className="hero__pattern" aria-hidden="true" />
       <div className="hero__inner">
         <h1 className="hero__name">{site.nickname}</h1>

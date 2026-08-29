@@ -1,8 +1,10 @@
 import { useMemo, useState } from 'react'
 import { memeTags, memes, type MemeTag } from '../data/memes'
+import { useScrollReveal } from '../hooks/useScrollReveal'
 
 export function MemeCorner() {
   const [tag, setTag] = useState<MemeTag | 'All'>('All')
+  const memesRef = useScrollReveal()
 
   const filtered = useMemo(() => {
     if (tag === 'All') return memes
@@ -10,7 +12,7 @@ export function MemeCorner() {
   }, [tag])
 
   return (
-    <section className="section" id="memes">
+    <section className="section reveal-stagger" id="memes" ref={memesRef}>
       <p className="section__eyebrow">Brain garden</p>
       <h2 className="section__title">Meme corner</h2>
       <p className="section__lead">

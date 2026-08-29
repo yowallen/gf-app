@@ -16,6 +16,7 @@ import {
 } from '../data/dateIdeas'
 import { useBucketList } from '../hooks/useBucketList'
 import { useDateIdeaMemory } from '../hooks/useDateIdeaMemory'
+import { useScrollReveal } from '../hooks/useScrollReveal'
 
 type DateIdeasProps = Readonly<{
   addedBy: string
@@ -247,6 +248,7 @@ export function DateIdeas({ addedBy }: DateIdeasProps) {
     isTried,
     isLiked,
   } = useDateIdeaMemory()
+  const datesRef = useScrollReveal()
 
   const filtered = useMemo(() => {
     return dateIdeas.filter((entry) =>
@@ -311,7 +313,7 @@ export function DateIdeas({ addedBy }: DateIdeasProps) {
   }
 
   return (
-    <section className="section" id="dates">
+    <section className="section reveal" id="dates" ref={datesRef}>
       <p className="section__eyebrow">Field trips for two</p>
       <h2 className="section__title">Date ideas generator</h2>
       <p className="section__lead">

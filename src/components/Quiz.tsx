@@ -15,6 +15,7 @@ import { gateAuth } from '../data/auth'
 import { type GateActor } from '../hooks/useGateAuth'
 import { useQuizBank } from '../hooks/useQuizBank'
 import { useQuizScores } from '../hooks/useQuizScores'
+import { useScrollReveal } from '../hooks/useScrollReveal'
 import { daysUntilNextWeek, formatWeekLabel, getWeekId } from '../lib/quizWeek'
 import { QuizEditor } from './QuizEditor'
 
@@ -515,6 +516,7 @@ function QuizResultsView({
 
 export function Quiz({ actor }: QuizProps) {
   const role = actor.role
+  const quizRef = useScrollReveal()
   const { bank, syncState, syncError, saveQuestionnaire } = useQuizBank()
   const {
     board,
@@ -811,7 +813,7 @@ export function Quiz({ actor }: QuizProps) {
   const combinedSyncState = resolveCombinedSyncState(syncState, scoreSyncState)
 
   return (
-    <section className="section" id="quiz">
+    <section className="section reveal" id="quiz" ref={quizRef}>
       <p className="section__eyebrow">Soft psych</p>
       <h2 className="section__title">{quizSectionTitle}</h2>
       <p className="section__lead">{quizSectionLead}</p>

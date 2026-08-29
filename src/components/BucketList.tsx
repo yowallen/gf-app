@@ -4,6 +4,7 @@ import {
   type BucketCategory,
   type SyncState,
 } from '../hooks/useBucketList'
+import { useScrollReveal } from '../hooks/useScrollReveal'
 
 function statusLabel(state: SyncState): string {
   switch (state) {
@@ -25,6 +26,7 @@ type BucketListProps = {
 export function BucketList({ addedBy }: BucketListProps) {
   const { items, syncState, syncError, addItem, toggleItem, deleteItem } =
     useBucketList(addedBy)
+  const bucketRef = useScrollReveal()
   const [text, setText] = useState('')
   const [category, setCategory] = useState<BucketCategory>('date')
   const [exitingIds, setExitingIds] = useState<string[]>([])
@@ -45,7 +47,7 @@ export function BucketList({ addedBy }: BucketListProps) {
   }
 
   return (
-    <section className="section" id="bucket">
+    <section className="section reveal" id="bucket" ref={bucketRef}>
       <p className="section__eyebrow">Things to grow</p>
       <h2 className="section__title">Our bucket list</h2>
       <p className="section__lead">
